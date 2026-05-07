@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>7s-PM-Craft</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['Playfair Display', 'serif'],
+            body: ['Source Sans 3', 'system-ui', 'sans-serif'],
+          },
+          colors: {
+            ink: { 50: '#f7f6f4', 100: '#e8e5e0', 200: '#d4cfc7', 300: '#b8b0a4', 400: '#9a8f80', 500: '#7d7166', 600: '#635a50', 700: '#4a433c', 800: '#332e29', 900: '#1c1a17' },
+            clay: { 50: '#fdf8f5', 100: '#f5e6d8', 200: '#e8cdb3', 300: '#d4ad88', 400: '#c08f60', 500: '#a8764a', 600: '#8c5f3a', 700: '#6e4a2f', 800: '#523624', 900: '#38251a' },
+            sage: { 50: '#f6f7f4', 100: '#e3e7dd', 200: '#c8d1bd', 300: '#a4b396', 400: '#7f9472', 500: '#637a58', 600: '#4e6145', 700: '#3d4b36', 800: '#2e3829', 900: '#1f261d' },
+            rust: { 50: '#fdf6f3', 100: '#f5ddd4', 200: '#eab9a8', 300: '#d98f78', 400: '#c46e52', 500: '#a8543c', 600: '#8c4232', 700: '#6e3428', 800: '#52271f', 900: '#381b16' },
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Source Sans 3', system-ui, sans-serif; background: #f7f6f4; }
+    .font-display { font-family: 'Playfair Display', serif; }
+
+    /* Status badges */
+    .status-badge { @apply px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide; background: #e8e5e0; color: #635a50; }
+    .status-设计中 { background: #e3e7dd; color: #3d4b36; }
+    .status-待评审 { background: #f5e6d8; color: #6e4a2f; }
+    .status-开发中 { background: #e8e5e0; color: #4a433c; }
+    .status-待验收 { background: #f5ddd4; color: #6e3428; }
+    .status-已完成 { background: #c8d1bd; color: #2e3829; }
+    .status-挂起 { background: #e8cdb3; color: #523624; }
+
+    /* Priority badges */
+    .priority-badge { @apply px-2 py-0.5 rounded text-xs font-bold; background-color: #d4cfc7; color: #4a433c; }
+    .priority-P0 { background-color: #c46e52; color: white; }
+    .priority-P1 { background-color: #d98f78; color: white; }
+    .priority-P2 { background-color: #eab9a8; color: #52271f; }
+    .priority-P3 { background-color: #c8d1bd; color: #2e3829; }
+    .priority-P4 { background-color: #d4cfc7; color: #4a433c; }
+    .priority-P5 { background-color: #e8e5e0; color: #635a50; }
+
+    /* Select styling */
+    select { 
+      appearance: none; 
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23635a50' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      padding-right: 24px;
+    }
+
+    /* Table row hover */
+    .req-row { transition: all 0.15s ease; }
+    .req-row:hover { background: #f0eee9; }
+
+    /* Card hover */
+    .product-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    .product-card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px -12px rgba(28,26,23,0.15); }
+
+    /* Sidebar item */
+    .sidebar-item { transition: all 0.15s ease; border-left: 3px solid transparent; }
+    .sidebar-item:hover { background: #f0eee9; }
+    .sidebar-item.active { background: #e8e5e0; border-left-color: #7d7166; }
+
+    /* Prototype container */
+    .proto-container { transition: all 0.3s ease; }
+
+    /* Animations */
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .animate-fade-in { animation: fadeIn 0.4s ease-out; }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #d4cfc7; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #b8b0a4; }
+
+    /* Drag & Drop */
+    .drag-item { cursor: grab; }
+    .drag-item:active { cursor: grabbing; }
+    .drag-item.dragging {
+      opacity: 0.5;
+      transform: scale(0.98);
+      background: #f0eee9;
+    }
+    .sprint-group.drag-over {
+      border-color: #7d7166 !important;
+      box-shadow: 0 0 0 2px rgba(125, 113, 102, 0.15);
+      background: #fdfcfa;
+    }
+    .sprint-group.drag-over .bg-ink-50 {
+      background: #f0eee9;
+    }
+
+    /* Kanban */
+    .kanban-column { transition: all 0.2s ease; }
+    .kanban-card { transition: all 0.2s ease; }
+    .kanban-card:hover { transform: translateY(-2px); }
+    .kanban-card:active { cursor: grabbing; }
+    .line-clamp-2 {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    /* View mode buttons */
+    .view-btn { padding: 6px; border-radius: 6px; transition: all 0.15s ease; }
+    .view-btn:hover { background: #e8e5e0; }
+    .view-btn.active { background: #332e29; color: #ffffff; }
+
+    /* Sprint list sidebar item */
+    .sprint-list-item { transition: all 0.15s ease; border-left: 3px solid transparent; }
+    .sprint-list-item:hover { background: #f0eee9; }
+    .sprint-list-item.active { background: #e8e5e0; border-left-color: #7d7166; }
+  </style>
+</head>
+<body class="text-ink-800 antialiased">
+  <div id="app">
+    <!-- 首页 -->
+    <div id="home-page" class="hidden">
+      <header class="bg-white border-b border-ink-100 px-8 py-5 flex justify-between items-center">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 bg-ink-800 rounded-lg flex items-center justify-center">
+            <span class="text-white font-display font-bold text-lg">7s</span>
+          </div>
+          <h1 class="font-display text-2xl font-bold text-ink-900">PM-Craft</h1>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="relative">
+            <input type="text" id="global-search" placeholder="搜索需求..." onkeydown="if(event.key==='Enter')performSearch()"
+              class="pl-9 pr-4 py-2 w-64 border border-ink-200 rounded-xl text-sm focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all bg-white">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="absolute left-3 top-1/2 transform -translate-y-1/2 text-ink-400">
+              <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <button onclick="showSettings()" class="px-4 py-2 text-sm font-medium text-ink-600 hover:text-ink-900 transition-colors">设置</button>
+          <button onclick="showCreateSprintModal()" class="px-4 py-2 text-sm font-medium text-ink-600 border border-ink-200 rounded-lg hover:bg-ink-50 transition-colors flex items-center gap-2">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M8 1v5h5M8 6a5 5 0 1 1-5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            新建迭代
+          </button>
+          <button onclick="showCreateReqModal()" class="px-4 py-2 bg-ink-800 text-white text-sm font-medium rounded-lg hover:bg-ink-700 transition-colors flex items-center gap-2">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            新建需求
+          </button>
+          <button onclick="refreshData()" class="px-4 py-2 text-sm font-medium text-ink-600 border border-ink-200 rounded-lg hover:bg-ink-50 transition-colors">刷新</button>
+        </div>
+      </header>
+
+      <main class="p-8 max-w-7xl mx-auto">
+        <!-- 统计视图 -->
+        <div class="mb-10 animate-fade-in">
+          <h2 class="font-display text-xl font-semibold text-ink-800 mb-5">统计概览</h2>
+          <div class="grid gap-4" id="stats-container"></div>
+        </div>
+
+        <!-- 产品线卡片 -->
+        <div class="animate-fade-in">
+          <h2 class="font-display text-xl font-semibold text-ink-800 mb-5">产品线</h2>
+          <div class="grid grid-cols-3 gap-6" id="product-lines"></div>
+        </div>
+
+        <!-- 快捷入口 -->
+        <div class="mt-6 grid grid-cols-2 gap-4 animate-fade-in">
+          <!-- 迭代视图 -->
+          <div id="iteration-entry" onclick="showSprintView()" class="cursor-pointer">
+            <div class="bg-ink-100 rounded-2xl p-7 border border-ink-200 hover:border-ink-300 hover:bg-ink-200 transition-all">
+              <div class="flex justify-between items-center">
+                <div class="flex items-center gap-4">
+                  <svg width="32" height="32" viewBox="0 0 32 32" fill="none" class="text-ink-500">
+                    <rect x="4" y="5" width="24" height="19" rx="2" stroke="currentColor" stroke-width="2"/>
+                    <path d="M4 13h24" stroke="currentColor" stroke-width="2"/>
+                    <path d="M11 4h10v2H11z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                  </svg>
+                  <div>
+                    <h3 class="font-display text-xl font-bold text-ink-800">迭代视图</h3>
+                    <p class="text-sm text-ink-500 mt-0.5">管理迭代、拖拽分配</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-4">
+                  <div class="font-display text-4xl font-bold text-ink-700 sprint-count">0</div>
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" class="text-ink-400"><path d="M7 4l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 已归档 -->
+          <div id="archived-card" onclick="showArchivePage()" class="cursor-pointer">
+            <div class="bg-ink-200 rounded-2xl p-7 border border-ink-200 hover:border-ink-300 hover:bg-ink-300 transition-all">
+              <div class="flex justify-between items-center">
+                <div class="flex items-center gap-4">
+                  <svg width="32" height="32" viewBox="0 0 32 32" fill="none" class="text-ink-500">
+                    <rect x="4" y="8" width="24" height="20" rx="2" stroke="currentColor" stroke-width="2"/>
+                    <path d="M4 14h24" stroke="currentColor" stroke-width="2"/>
+                    <path d="M10 4h12v4H10z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                  </svg>
+                  <div>
+                    <h3 class="font-display text-xl font-bold text-ink-800">已归档需求</h3>
+                    <p class="text-sm text-ink-500 mt-0.5">查看所有已归档的需求</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-4">
+                  <div class="font-display text-4xl font-bold text-ink-700 archived-count">0</div>
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" class="text-ink-400"><path d="M7 4l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- 需求列表页 -->
+    <div id="list-page" class="hidden h-screen flex flex-col">
+      <header class="bg-white border-b border-ink-100 px-8 py-4 flex justify-between items-center">
+        <div class="flex items-center gap-4">
+          <button onclick="showHome()" class="text-ink-500 hover:text-ink-800 transition-colors flex items-center gap-1">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            首页
+          </button>
+          <div class="w-px h-5 bg-ink-200"></div>
+          <h2 id="list-title" class="font-display text-xl font-bold text-ink-900"></h2>
+          <button id="clear-search-btn" class="hidden px-3 py-1 text-sm text-ink-600 border border-ink-200 rounded-lg hover:bg-ink-50 transition-colors" onclick="clearSearch()">清除搜索</button>
+        </div>
+        <div class="flex items-center gap-3">
+          <button onclick="showCreateSprintModal()" class="px-4 py-2 text-sm font-medium text-ink-600 border border-ink-200 rounded-lg hover:bg-ink-50 transition-colors flex items-center gap-2">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M8 1v5h5M8 6a5 5 0 1 1-5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            新建迭代
+          </button>
+          <button onclick="showCreateReqModal()" class="px-4 py-2 bg-ink-800 text-white text-sm font-medium rounded-lg hover:bg-ink-700 transition-colors flex items-center gap-2">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            新建需求
+          </button>
+        </div>
+      </header>
+
+      <div class="flex-1 overflow-auto p-8">
+        <!-- 状态视图 -->
+        <div id="status-view" class="animate-fade-in">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex gap-2 overflow-x-auto pb-2" id="status-tabs"></div>
+            <div class="flex gap-1 bg-ink-100 p-1 rounded-lg ml-4 flex-shrink-0">
+              <button onclick="switchStatusViewMode('card')" id="btn-view-card" class="p-1.5 rounded-md transition-all" title="卡片视图">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/></svg>
+              </button>
+              <button onclick="switchStatusViewMode('list')" id="btn-view-list" class="p-1.5 rounded-md transition-all text-ink-500 hover:text-ink-800" title="列表视图">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- 看板布局 -->
+          <div id="kanban-board" class="flex gap-4 overflow-x-auto pb-4" style="min-height: 400px;"></div>
+
+          <!-- 表格布局 -->
+          <div id="table-view" class="hidden bg-white rounded-2xl border border-ink-100 overflow-hidden shadow-sm">
+            <table class="w-full">
+              <thead>
+                <tr class="border-b border-ink-100">
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">需求ID</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">需求名称</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">状态</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">迭代</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">终端</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">开发</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">提出人</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">创建时间</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">预计上线</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">优先级</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">操作</th>
+                </tr>
+              </thead>
+              <tbody id="requirements-list"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 需求详情页 -->
+    <div id="detail-page" class="hidden h-screen flex flex-col">
+      <header class="bg-white border-b border-ink-100 px-8 py-4 flex justify-between items-center">
+        <div class="flex items-center gap-4">
+          <button onclick="showListPage()" class="text-ink-500 hover:text-ink-800 transition-colors flex items-center gap-1">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            列表
+          </button>
+          <div class="w-px h-5 bg-ink-200"></div>
+          <span id="detail-header" class="text-base font-medium text-ink-800"></span>
+        </div>
+        <div class="flex gap-3">
+          <button onclick="toggleDocPanel()" id="doc-toggle-btn" class="px-4 py-2 text-sm font-medium text-ink-600 border border-ink-200 rounded-lg hover:bg-ink-50 transition-colors flex items-center gap-2">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            需求文档
+          </button>
+        </div>
+      </header>
+
+      <div class="flex flex-1 overflow-hidden">
+        <!-- 左侧需求列表 -->
+        <div class="w-64 bg-white border-r border-ink-100 overflow-y-auto" id="detail-sidebar"></div>
+
+        <!-- 中间原型区域 -->
+        <div class="flex-1 bg-ink-50 relative flex items-center justify-center" id="prototype-area">
+          <div class="absolute top-4 left-1/2 transform -translate-x-1/2 flex gap-2 bg-white rounded-xl p-1.5 shadow-sm border border-ink-100" id="platform-tabs"></div>
+          <button onclick="togglePrototypeFullscreen()" id="proto-fullscreen-btn" class="absolute top-4 right-4 w-9 h-9 bg-white rounded-xl shadow-sm border border-ink-100 flex items-center justify-center text-ink-500 hover:text-ink-800 hover:bg-ink-50 transition-all z-10" title="全屏">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="p-8 w-full h-full flex items-center justify-center">
+            <div id="prototype-container" class="bg-white rounded-2xl shadow-lg overflow-hidden proto-container relative">
+              <iframe id="prototype-frame" class="w-full h-full border-0"></iframe>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右侧需求文档 -->
+        <div class="w-[420px] bg-white border-l border-ink-100 overflow-y-auto hidden flex flex-col" id="doc-panel">
+          <div class="px-6 py-3 border-b border-ink-100 flex items-center justify-between bg-white">
+            <span class="text-sm font-semibold text-ink-700">需求文档</span>
+            <div class="flex gap-2">
+              <button onclick="toggleDocEditMode()" id="doc-edit-btn" class="px-3 py-1.5 text-xs font-medium text-ink-600 border border-ink-200 rounded-lg hover:bg-ink-50 transition-colors flex items-center gap-1">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M11 2L14 5M2 14l3-1 8-8-3-3-8 8-1 3z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                编辑
+              </button>
+              <button onclick="saveDocContent()" id="doc-save-btn" class="px-3 py-1.5 text-xs font-medium text-white bg-ink-800 rounded-lg hover:bg-ink-700 transition-colors hidden flex items-center gap-1">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                保存
+              </button>
+              <button onclick="cancelDocEdit()" id="doc-cancel-btn" class="px-3 py-1.5 text-xs font-medium text-ink-500 hover:text-ink-800 transition-colors hidden">取消</button>
+            </div>
+          </div>
+          <div class="flex-1 overflow-y-auto p-8" id="doc-content"></div>
+          <textarea id="doc-editor" class="hidden flex-1 w-full p-8 text-sm font-mono text-ink-800 bg-ink-50 resize-none focus:outline-none" spellcheck="false"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- 归档查看页 -->
+    <div id="archive-page" class="hidden h-screen flex flex-col">
+      <header class="bg-white border-b border-ink-100 px-8 py-4 flex justify-between items-center">
+        <div class="flex items-center gap-4">
+          <button onclick="showHome()" class="text-ink-500 hover:text-ink-800 transition-colors flex items-center gap-1">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            首页
+          </button>
+          <div class="w-px h-5 bg-ink-200"></div>
+          <h2 class="font-display text-xl font-bold text-ink-900">已归档</h2>
+        </div>
+      </header>
+      <div class="flex-1 overflow-auto p-8">
+        <div id="archive-content"></div>
+      </div>
+    </div>
+
+    <!-- 迭代视图页 -->
+    <div id="sprint-page" class="hidden h-screen flex flex-col">
+      <header class="bg-white border-b border-ink-100 px-8 py-4 flex justify-between items-center">
+        <div class="flex items-center gap-4">
+          <button onclick="showHome()" class="text-ink-500 hover:text-ink-800 transition-colors flex items-center gap-1">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            首页
+          </button>
+          <div class="w-px h-5 bg-ink-200"></div>
+          <h2 class="font-display text-xl font-bold text-ink-900">迭代视图</h2>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="flex gap-1 bg-ink-100 p-1 rounded-lg">
+            <button onclick="switchSprintViewMode('card')" id="btn-sprint-card" class="p-1.5 rounded-md transition-all" title="看板视图">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/></svg>
+            </button>
+            <button onclick="switchSprintViewMode('list')" id="btn-sprint-list" class="p-1.5 rounded-md transition-all text-ink-500 hover:text-ink-800" title="列表视图">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+          <select id="sprint-product-line-filter" onchange="renderSprintView()" class="text-sm bg-white border border-ink-200 rounded-lg px-3 py-2 focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all">
+            <option value="">全部产品线</option>
+          </select>
+        </div>
+      </header>
+      <div class="flex flex-1 overflow-hidden">
+        <!-- 左侧迭代列表 -->
+        <div class="w-64 bg-white border-r border-ink-100 flex flex-col">
+          <div class="px-4 py-3 border-b border-ink-100 flex items-center justify-between">
+            <span class="text-sm font-semibold text-ink-700">迭代列表</span>
+            <button onclick="showCreateSprintModal()" class="p-1.5 rounded-lg hover:bg-ink-50 text-ink-400 hover:text-ink-800 transition-colors" title="新建迭代">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+          <div class="flex-1 overflow-y-auto" id="sprint-list"></div>
+        </div>
+        <!-- 右侧需求看板 -->
+        <div class="flex-1 overflow-auto p-6">
+          <div id="sprint-kanban-board" class="flex gap-4 overflow-x-auto pb-4" style="min-height: 400px;"></div>
+          <div id="sprint-list-view" class="hidden bg-white rounded-2xl border border-ink-100 overflow-hidden shadow-sm">
+            <table class="w-full">
+              <thead>
+                <tr class="border-b border-ink-100">
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">需求ID</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">需求名称</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">状态</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">产品线</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">优先级</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">操作</th>
+                </tr>
+              </thead>
+              <tbody id="sprint-requirements-list"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新建需求弹窗 -->
+    <div id="create-req-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden z-50 flex items-center justify-center">
+      <div class="bg-white rounded-2xl shadow-2xl w-[480px] max-h-[85vh] flex flex-col overflow-hidden animate-fade-in">
+        <div class="px-6 py-5 border-b border-ink-100 flex justify-between items-center">
+          <h3 class="font-display text-xl font-bold text-ink-900">新建需求</h3>
+          <button onclick="closeCreateReqModal()" class="w-8 h-8 rounded-lg hover:bg-ink-100 flex items-center justify-center transition-colors">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-6 space-y-5">
+          <!-- 需求标题 -->
+          <div>
+            <label class="block text-sm font-medium text-ink-700 mb-1.5">需求标题 <span class="text-rust-500">*</span></label>
+            <input type="text" id="new-req-title" placeholder="输入需求标题" class="w-full px-4 py-2.5 border border-ink-200 rounded-xl text-sm focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all">
+          </div>
+
+          <!-- 产品线 -->
+          <div>
+            <label class="block text-sm font-medium text-ink-700 mb-1.5">产品线 <span class="text-rust-500">*</span></label>
+            <div id="new-req-product-line-list" class="space-y-2 mb-3"></div>
+            <div class="flex gap-2">
+              <input type="text" id="new-req-product-line-input" placeholder="输入新产品线名称" class="flex-1 px-4 py-2 border border-ink-200 rounded-xl text-sm focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all" onkeydown="if(event.key==='Enter'){event.preventDefault();addNewProductLine();}">
+              <button onclick="addNewProductLine()" class="px-4 py-2 text-sm font-medium text-ink-600 border border-ink-200 rounded-xl hover:bg-ink-50 transition-colors">添加</button>
+            </div>
+          </div>
+
+          <!-- 优先级 & 预计上线 -->
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-ink-700 mb-1.5">优先级</label>
+              <select id="new-req-priority" class="w-full px-4 py-2.5 border border-ink-200 rounded-xl text-sm focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all bg-white"></select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-ink-700 mb-1.5">预计上线</label>
+              <input type="date" id="new-req-due-date" class="w-full px-4 py-2.5 border border-ink-200 rounded-xl text-sm focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all">
+            </div>
+          </div>
+
+          <!-- 平台 -->
+          <div>
+            <label class="block text-sm font-medium text-ink-700 mb-1.5">终端平台</label>
+            <div class="flex gap-4">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="new-req-platform-web" value="web" checked class="w-4 h-4 rounded border-ink-300 text-ink-800 focus:ring-ink-500">
+                <span class="text-sm text-ink-700">Web端</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="new-req-platform-mobile" value="mobile" class="w-4 h-4 rounded border-ink-300 text-ink-800 focus:ring-ink-500">
+                <span class="text-sm text-ink-700">移动端</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 开发 & 提出人 -->
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-ink-700 mb-1.5">开发负责人</label>
+              <input type="text" id="new-req-developer" placeholder="姓名" class="w-full px-4 py-2.5 border border-ink-200 rounded-xl text-sm focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-ink-700 mb-1.5">需求提出人</label>
+              <input type="text" id="new-req-requester" placeholder="姓名" class="w-full px-4 py-2.5 border border-ink-200 rounded-xl text-sm focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all">
+            </div>
+          </div>
+        </div>
+        <div class="px-6 py-4 border-t border-ink-100 flex justify-end gap-3">
+          <button onclick="closeCreateReqModal()" class="px-5 py-2.5 text-sm font-medium text-ink-600 hover:text-ink-800 transition-colors">取消</button>
+          <button onclick="createRequirement()" class="px-5 py-2.5 bg-ink-800 text-white text-sm font-medium rounded-xl hover:bg-ink-700 transition-colors">创建需求</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新建迭代弹窗 -->
+    <div id="create-sprint-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden z-50 flex items-center justify-center">
+      <div class="bg-white rounded-2xl shadow-2xl w-[400px] flex flex-col overflow-hidden animate-fade-in">
+        <div class="px-6 py-5 border-b border-ink-100 flex justify-between items-center">
+          <h3 class="font-display text-xl font-bold text-ink-900">新建迭代</h3>
+          <button onclick="closeCreateSprintModal()" class="w-8 h-8 rounded-lg hover:bg-ink-100 flex items-center justify-center transition-colors">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="p-6">
+          <label class="block text-sm font-medium text-ink-700 mb-1.5">迭代名称 <span class="text-rust-500">*</span></label>
+          <input type="text" id="new-sprint-name" placeholder="例如：Sprint 25.05" class="w-full px-4 py-2.5 border border-ink-200 rounded-xl text-sm focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all" onkeydown="if(event.key==='Enter')createSprintFromModal()">
+        </div>
+        <div class="px-6 py-4 border-t border-ink-100 flex justify-end gap-3">
+          <button onclick="closeCreateSprintModal()" class="px-5 py-2.5 text-sm font-medium text-ink-600 hover:text-ink-800 transition-colors">取消</button>
+          <button onclick="createSprintFromModal()" class="px-5 py-2.5 bg-ink-800 text-white text-sm font-medium rounded-xl hover:bg-ink-700 transition-colors">创建迭代</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 设置弹窗 -->
+    <div id="settings-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden z-50 flex items-center justify-center">
+      <div class="bg-white rounded-2xl shadow-2xl w-[640px] max-h-[80vh] flex flex-col overflow-hidden animate-fade-in">
+        <div class="px-6 py-5 border-b border-ink-100 flex justify-between items-center">
+          <h3 class="font-display text-xl font-bold text-ink-900">设置</h3>
+          <button onclick="closeSettings()" class="w-8 h-8 rounded-lg hover:bg-ink-100 flex items-center justify-center transition-colors">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-6">
+          <!-- 产品线 -->
+          <div class="mb-8">
+            <h4 class="font-semibold text-sm text-ink-800 mb-4 flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="text-ink-400"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              产品线
+            </h4>
+            <div class="flex gap-2 mb-4">
+              <input type="text" id="new-product-line-input" placeholder="输入新产品线名称" class="flex-1 px-4 py-2 border border-ink-200 rounded-xl text-sm focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all" onkeydown="if(event.key==='Enter')addProductLineFromSettings()">
+              <button onclick="addProductLineFromSettings()" class="px-5 py-2 bg-ink-800 text-white text-sm font-medium rounded-xl hover:bg-ink-700 transition-colors">添加</button>
+            </div>
+            <div id="product-lines-list" class="flex flex-wrap gap-2"></div>
+          </div>
+
+          <!-- 状态定义 -->
+          <div class="mb-8">
+            <h4 class="font-semibold text-sm text-ink-800 mb-4 flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="text-ink-400"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg>
+              状态定义
+            </h4>
+            <div class="flex gap-2 mb-4">
+              <input type="text" id="new-status-input" placeholder="输入新状态名称" class="flex-1 px-4 py-2 border border-ink-200 rounded-xl text-sm focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all" onkeydown="if(event.key==='Enter')addStatusFromSettings()">
+              <button onclick="addStatusFromSettings()" class="px-5 py-2 bg-ink-800 text-white text-sm font-medium rounded-xl hover:bg-ink-700 transition-colors">添加</button>
+            </div>
+            <div id="status-list-display" class="flex flex-wrap gap-2"></div>
+          </div>
+
+          <!-- 优先级定义 -->
+          <div>
+            <h4 class="font-semibold text-sm text-ink-800 mb-4 flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="text-ink-400"><path d="M8 2v8M4 6l4-4 4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              优先级定义
+            </h4>
+            <div class="flex gap-2 mb-4">
+              <input type="text" id="new-priority-input" placeholder="输入新优先级名称（如 P6）" class="flex-1 px-4 py-2 border border-ink-200 rounded-xl text-sm focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all" onkeydown="if(event.key==='Enter')addPriorityFromSettings()">
+              <button onclick="addPriorityFromSettings()" class="px-5 py-2 bg-ink-800 text-white text-sm font-medium rounded-xl hover:bg-ink-700 transition-colors">添加</button>
+            </div>
+            <div id="priority-list-display" class="flex flex-wrap gap-2"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

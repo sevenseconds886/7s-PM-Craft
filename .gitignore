@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output (generated from source)
+dist/
+
+# Test artifacts
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Logs
+*.log
+nul
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.obsidian/
+
+# WorkBuddy (personal config, not project data)
+.workbuddy/
+
+# Local settings (per-machine)
+.settings.json
+.sprints.json
+
+# Temporary files
+*.tmp
+*.swp
