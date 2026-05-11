@@ -28,6 +28,7 @@ npm start
 ### 首页 Dashboard
 - 统计概览：总需求数、各状态分布（设计中/待评审/开发中/待验收/归档）
 - 产品线卡片：展示各产品线的需求数量及状态分布
+- **需求池入口**：快速访问草稿管理
 - 全局搜索：跨产品线搜索需求，支持关键词、ID、开发/提出人
 
 ### 需求列表页
@@ -44,7 +45,14 @@ npm start
 - 左侧：当前产品线需求快速切换
 - 中间：原型展示（Web端等比例缩放 / 移动端 375×667）
   - 支持多端原型 Tab 切换
+  - **无原型时**：直接展示 PRD 文档内容
 - 右侧：需求文档 Markdown 渲染（可展开/收起）
+
+### 需求池
+- 集中管理未正式发布的需求草稿
+- 支持创建/编辑/发布/删除草稿
+- 草稿状态：草稿 → 进行中 → 已发布
+- 发布后自动转为正式需求（REQ-*）
 
 ### 新建需求
 - 填写标题、产品线、优先级、预计上线、平台、开发/提出人
@@ -69,12 +77,13 @@ npm run pm -- list
 
 所有 AI 工具、Skill、手动操作遵循统一规范：
 
-**📄 [`skills/pm-craft-rules/SKILL.md`](./skills/pm-craft-rules/SKILL.md)** （v2.0.0）
+**📄 [`skills/pm-craft-rules/SKILL.md`](./skills/pm-craft-rules/SKILL.md)** （v2.1.0）
 
 | 章节 | 内容 |
 |------|------|
 | §1 文件协议 | 目录结构、命名规则、ID/Slug 算法 |
 | §2 需求文档规范 | YAML front matter 字段定义、读取容错 |
+| §2.5 草稿文档规范 | **需求池（drafts）文件格式、发布流程** |
 | §3 原型规范 | DesignSystem 接口、交互/保真度要求 |
 | §4 迭代数据规范 | `.sprints.json` 格式、API 端点 |
 | §5 命令协议 | `/prd-new` 等命令格式与执行流程 |
@@ -104,8 +113,9 @@ npm run pm -- list
 │   ├── prototype-web.html      # 可选
 │   └── prototype-mobile.html   # 可选
 ├── archive/{product-line}/REQ-{id}-{slug}/
+├── drafts/                     # 需求池草稿目录
 ├── .sprints.json               # 迭代元数据
-└── skills/pm-craft-rules/SKILL.md   # 统一规范（v2.0，替代旧 PROTOCOL.md）
+└── skills/pm-craft-rules/SKILL.md   # 统一规范（v2.1，替代旧 PROTOCOL.md）
 ```
 
 ### requirement.md 格式
@@ -152,6 +162,8 @@ tags:
 | `/api/requirements/:id/content` | POST | 修改文档正文 |
 | `/api/requirements/:id/archive` | POST | 归档需求 |
 | `/api/requirements/:id/prototype/import` | POST | **导入外部原型 HTML**（自动注入关联 meta） |
+| `/api/requirements/:id/history` | GET | **获取版本历史列表** |
+| `/api/requirements/:id/history/:timestamp` | GET | **获取指定版本内容** |
 | `/api/sprints` | GET | 获取迭代列表 |
 | `/api/sprints` | POST | 创建迭代 |
 | `/api/sprints/:name/close` | POST | 关闭迭代 |
@@ -159,6 +171,13 @@ tags:
 | `/api/settings` | GET | 获取设置 |
 | `/api/settings` | POST | 保存设置 |
 | `/api/product-lines` | POST | 创建产品线 |
+| `/api/drafts` | GET | **获取草稿列表** |
+| `/api/drafts` | POST | **创建草稿** |
+| `/api/drafts/:id` | GET | **获取单个草稿** |
+| `/api/drafts/:id` | PUT | **更新草稿** |
+| `/api/drafts/:id/status` | POST | **更新草稿状态** |
+| `/api/drafts/:id/publish` | POST | **发布草稿为正式需求** |
+| `/api/drafts/:id` | DELETE | **删除草稿** |
 
 ### 导入接口说明（v2.0 新增）
 
@@ -225,3 +244,8 @@ npx playwright show-report
 - [x] 外部产物导入接口（POST /api/requirements/import）
 - [x] 原型导入接口（POST /api/requirements/:id/prototype/import）
 - [x] 元数据自动校验与补全
+- [x] 列表页高级筛选（优先级、迭代、负责人、提出人）
+- [x] 需求文档版本历史（自动保存，可查看历史版本）
+- [x] 原型静态文件服务（/products/ 和 /archive/ 路径可访问）
+- [x] **原型区域优化**（无原型时直接展示 PRD 文档）
+- [x] **需求池功能**（草稿 CRUD + 发布为正式需求）

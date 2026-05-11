@@ -924,3 +924,133 @@ test.describe('API: POST /api/requirements/:id/prototype/import', () => {
     expect(response.status()).toBe(400);
   });
 });
+
+test.describe('API: /api/drafts (需求池)', () => {
+  let apiContext;
+  const API_BASE = `http://localhost:${process.env.PORT || 3456}`;
+  let createdDraftId;
+
+  test.beforeAll(async () => {
+    apiContext = await pwRequest.newContext({ baseURL: API_BASE });
+  });
+
+  test.afterAll(async () => {
+    await apiContext.dispose();
+  });
+
+  test('GET /api/drafts 应返回空数组或草稿列表', async () => {
+    const response = await apiContext.get('/api/drafts');
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(Array.isArray(body.drafts)).toBe(true);
+  });
+
+  test('POST /api/drafts 应成功创建草稿', async () => {
+    const response = await apiContext.post('/api/drafts', {
+      data: {
+        title: '测试草稿需求',
+        type: 'idea',
+        priority: 'high',
+        source: 'user_feedback',
+        productLine: '测试产品线',
+        tags: ['测试', '自动化']
+      }
+    });
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.id).toMatch(/^DRAFT-\d+$/);
+    expect(body.type).toBe('idea');
+    createdDraftId = body.id;
+  });
+
+  test('GET /api/drafts/:id 应返回单个草稿', async () => {
+    if (!createdDraftId) return; // 跳过如果创建失败
+
+    const response = await apiContext.get(`/api/drafts/${createdDraftId}`);
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.id).toBe(createdDraftId);
+    expect(body.title).toBe('测试草稿需求');
+  });
+
+  test('PUT /api/drafts/:id 应成功更新草稿', async () => {
+    if (!createdDraftId) return;
+
+    const response = await apiContext.put(`/api/drafts/${createdDraftId}`, {
+      data: {
+        title: '更新后的测试草稿',
+        priority: 'medium'
+      }
+    });
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+
+    // 验证更新成功
+    const getResp = await apiContext.get(`/api/drafts/${createdDraftId}`);
+    const getBody = await getResp.json();
+    expect(getBody.title).toBe('更新后的测试草稿');
+  });
+
+  test('POST /api/drafts/:id/status 应更新草稿状态', async () => {
+    if (!createdDraftId) return;
+
+    const response = await apiContext.post(`/api/drafts/${createdDraftId}/status`, {
+      data: { status: 'in_progress' }
+    });
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+
+    // 验证状态更新
+    const getResp = await apiContext.get(`/api/drafts/${createdDraftId}`);
+    const getBody = await getResp.json();
+    expect(getBody.status).toBe('in_progress');
+  });
+
+  test('POST /api/drafts/:id/publish 应发布草稿为正式需求', async () => {
+    if (!createdDraftId) return;
+
+    const response = await apiContext.post(`/api/drafts/${createdDraftId}/publish`);
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.requirementId).toMatch(/^REQ-\d+$/);
+
+    // 验证草稿状态已更新为 published
+    const getResp = await apiContext.get(`/api/drafts/${createdDraftId}`);
+    const getBody = await getResp.json();
+    expect(getBody.status).toBe('published');
+  });
+
+  test('DELETE /api/drafts/:id 应删除草稿', async () => {
+    // 先创建一个草稿再删除
+    const createResp = await apiContext.post('/api/drafts', {
+      data: { title: '待删除的草稿' }
+    });
+    const createBody = await createResp.json();
+    const draftId = createBody.id;
+
+    const response = await apiContext.delete(`/api/drafts/${draftId}`);
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+
+    // 验证删除成功（应返回 404）
+    const getResp = await apiContext.get(`/api/drafts/${draftId}`);
+    expect(getResp.status()).toBe(404);
+  });
+
+  test('GET /api/drafts/:id 不存在时应返回 404', async () => {
+    const response = await apiContext.get('/api/drafts/DRAFT-999999');
+    expect(response.status()).toBe(404);
+  });
+
+  test('POST /api/drafts 缺少必填字段 title 应返回 400', async () => {
+    const response = await apiContext.post('/api/drafts', {
+      data: { priority: 'high' }
+    });
+    expect(response.status()).toBe(400);
+  });
+});

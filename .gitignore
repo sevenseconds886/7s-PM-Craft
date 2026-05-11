@@ -30,3 +30,9 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.swp
+
+# Version history (local data, not tracked)
+**/.history/
+
+# Drafts (local data, not tracked)
+drafts/

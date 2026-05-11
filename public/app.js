@@ -1,5 +1,5 @@
 // 全局状态
-let currentData = { requirements: [], sprints: [] };
+let currentData = { requirements: [], sprints: [], drafts: [] };
 let settings = { statusList: [], priorityList: [] };
 let currentProductLine = '';
 let currentReqId = null;
@@ -9,11 +9,17 @@ let docEditMode = false;
 let draggedReqId = null;
 let isSearchMode = false;
 let lastSearchQuery = '';
+let activeFilters = { status: null, priority: null, sprint: null, developer: '', requester: '' }; // 高级筛选状态
 let statusViewMode = 'list'; // 'card' | 'list'
 let sprintViewMode = 'card'; // 迭代视图模式: 'card' | 'list'
 let currentSprint = null; // 当前选中的迭代名称（null 表示空迭代）
-let previousPage = 'home'; // 'home' | 'list' | 'archive' | 'sprint'
+let previousPage = 'home'; // 'home' | 'list' | 'archive' | 'sprint' | 'drafts'
 let docIsDirty = false; // 文档是否被修改过
+
+// 需求池状态
+let draftTypeFilter = ''; // '' | 'idea' | 'prototype'
+let draftStatusFilter = ''; // '' | 'draft' | 'in_progress' | 'published' | 'archived'
+let currentDraftId = null;
 
 // Toast 提示 - Apple 风格
 function showToast(message, type = 'success') {
@@ -108,29 +114,45 @@ async function loadSettings() {
 // 刷新数据
 async function refreshData() {
   try {
-    const [reqRes, sprintRes] = await Promise.all([
+    const [reqRes, sprintRes, draftRes] = await Promise.all([
       fetch('/api/requirements'),
-      fetch('/api/sprints')
+      fetch('/api/sprints'),
+      fetch('/api/drafts')
     ]);
 
     const reqData = await reqRes.json();
     const sprintData = await sprintRes.json();
+    const draftData = await draftRes.json();
 
     currentData.requirements = reqData.requirements;
     currentData.sprints = sprintData.sprints || [];
+    currentData.drafts = draftData.drafts || [];
 
     if (!document.getElementById('home-page').classList.contains('hidden')) {
       renderHome();
     } else if (!document.getElementById('list-page').classList.contains('hidden')) {
+      initFilterOptions();
       renderList();
     } else if (!document.getElementById('detail-page').classList.contains('hidden')) {
       renderDetail();
     } else if (!document.getElementById('sprint-page').classList.contains('hidden')) {
       renderSprintView();
+    } else if (!document.getElementById('drafts-page').classList.contains('hidden')) {
+      renderDraftsPage();
+    } else if (!document.getElementById('draft-detail-page').classList.contains('hidden')) {
+      renderDraftDetail();
     }
   } catch (e) {
     console.error('刷新数据失败:', e);
   }
+}
+
+// 产品线搜索功能
+let productLineSearchQuery = '';
+function performProductLineSearch() {
+  const query = document.getElementById('product-line-search').value.trim().toLowerCase();
+  productLineSearchQuery = query;
+  renderHome();
 }
 
 // 渲染首页
@@ -184,6 +206,13 @@ function renderHome() {
   if (sprintEntry) {
     sprintEntry.querySelector('.sprint-count').textContent = currentData.sprints.length;
   }
+  
+  // 更新需求池入口计数
+  const draftsEntry = document.getElementById('drafts-entry');
+  if (draftsEntry) {
+    const draftsCount = currentData.drafts.filter(d => d.status !== 'published').length;
+    draftsEntry.querySelector('.drafts-count').textContent = draftsCount;
+  }
 
   // 收集所有唯一的产品线（仅未归档需求，合并 settings.productLines 和需求中的产品线）
   const settingsProductLines = settings.productLines || [];
@@ -192,7 +221,12 @@ function renderHome() {
     .flatMap(r => Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []));
   const productLines = [...new Set([...settingsProductLines, ...reqProductLines])];
 
-  productLinesContainer.innerHTML = productLines.map(pl => {
+  // 产品线搜索过滤
+  const filteredProductLines = productLineSearchQuery
+    ? productLines.filter(pl => pl.toLowerCase().includes(productLineSearchQuery))
+    : productLines;
+
+  productLinesContainer.innerHTML = filteredProductLines.map(pl => {
     const plReqs = currentData.requirements.filter(r => {
       const pls = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
       return pls.includes(pl) && !r.isArchive;
@@ -220,7 +254,10 @@ function renderHome() {
 function showHome() {
   isSearchMode = false;
   lastSearchQuery = '';
+  productLineSearchQuery = '';
   document.getElementById('global-search').value = '';
+  const plSearch = document.getElementById('product-line-search');
+  if (plSearch) plSearch.value = '';
   previousPage = 'home';
   hideAllPages();
   document.getElementById('home-page').classList.remove('hidden');
@@ -237,6 +274,7 @@ function showList(productLine) {
   hideAllPages();
   document.getElementById('list-page').classList.remove('hidden');
   document.getElementById('list-title').textContent = currentProductLine;
+  initFilterOptions();
   renderList();
 }
 
@@ -267,6 +305,53 @@ function clearSearch() {
   showList(currentProductLine);
 }
 
+// 初始化筛选器选项（优先级、迭代下拉）
+function initFilterOptions() {
+  const prioritySelect = document.getElementById('filter-priority');
+  const sprintSelect = document.getElementById('filter-sprint');
+
+  if (prioritySelect) {
+    const currentVal = prioritySelect.value;
+    prioritySelect.innerHTML = '<option value="">全部优先级</option>' +
+      (settings.priorityList || []).map(p => `<option value="${p}">${p}</option>`).join('');
+    prioritySelect.value = currentVal || '';
+  }
+
+  if (sprintSelect) {
+    const currentVal = sprintSelect.value;
+    sprintSelect.innerHTML = '<option value="">全部迭代</option>' +
+      currentData.sprints.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
+    sprintSelect.value = currentVal || '';
+  }
+}
+
+// 应用筛选
+function applyFilters() {
+  activeFilters.priority = document.getElementById('filter-priority')?.value || null;
+  activeFilters.sprint = document.getElementById('filter-sprint')?.value || null;
+  activeFilters.developer = document.getElementById('filter-developer')?.value.trim().toLowerCase();
+  activeFilters.requester = document.getElementById('filter-requester')?.value.trim().toLowerCase();
+
+  // 更新清除按钮可见性
+  const hasFilters = activeFilters.priority || activeFilters.sprint || activeFilters.developer || activeFilters.requester;
+  const clearBtn = document.getElementById('clear-filter-btn');
+  if (clearBtn) clearBtn.classList.toggle('hidden', !hasFilters);
+
+  renderList();
+}
+
+// 清除筛选
+function clearFilters() {
+  activeFilters = { status: null, priority: null, sprint: null, developer: '', requester: '' };
+  document.getElementById('filter-priority').value = '';
+  document.getElementById('filter-sprint').value = '';
+  document.getElementById('filter-developer').value = '';
+  document.getElementById('filter-requester').value = '';
+  const clearBtn = document.getElementById('clear-filter-btn');
+  if (clearBtn) clearBtn.classList.add('hidden');
+  renderList();
+}
+
 // 渲染列表页
 function renderList() {
   let reqs;
@@ -285,6 +370,20 @@ function renderList() {
       const pls = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
       return pls.includes(currentProductLine);
     });
+  }
+
+  // 应用高级筛选
+  if (activeFilters.priority) {
+    reqs = reqs.filter(r => r.priority === activeFilters.priority);
+  }
+  if (activeFilters.sprint) {
+    reqs = reqs.filter(r => r.sprint === activeFilters.sprint);
+  }
+  if (activeFilters.developer) {
+    reqs = reqs.filter(r => r.developer && r.developer.toLowerCase().includes(activeFilters.developer));
+  }
+  if (activeFilters.requester) {
+    reqs = reqs.filter(r => r.requester && r.requester.toLowerCase().includes(activeFilters.requester));
   }
 
   // 状态标签
@@ -574,10 +673,54 @@ function loadPrototype(req) {
   const frame = document.getElementById('prototype-frame');
   const container = document.getElementById('prototype-container');
   const platform = currentPlatform || (req.platform || ['web'])[0];
+  const protoKey = platform === 'mobile' ? 'mobile' : 'web';
+
+  // 检查原型文件是否存在
+  if (!req.hasPrototype || !req.hasPrototype[protoKey]) {
+    // 无原型时，直接在原型区域展示 PRD 文档
+    frame.src = 'about:blank';
+    
+    // 获取文档内容
+    const docContent = req.body || '';
+    
+    // 渲染 Markdown 为 HTML
+    container.innerHTML = `
+      <div class="w-full h-full bg-white rounded-2xl shadow-lg overflow-hidden flex flex-col">
+        <div class="px-6 py-4 bg-ink-50 border-b border-ink-100">
+          <span class="text-sm font-medium text-ink-600">需求文档</span>
+        </div>
+        <div class="flex-1 overflow-y-auto p-6">
+          <div class="prose prose-sm max-w-none text-ink-700">
+            ${marked.parse(docContent || '*暂无文档内容*')}
+          </div>
+        </div>
+      </div>
+    `;
+    
+    // 设置容器尺寸
+    if (platform === 'mobile') {
+      container.style.width = '375px';
+      container.style.height = '667px';
+      container.style.maxWidth = '375px';
+    } else {
+      container.style.width = '100%';
+      container.style.height = '100%';
+      container.style.maxWidth = docPanelOpen ? '680px' : '960px';
+      container.style.maxHeight = '800px';
+    }
+    return;
+  }
 
   const primaryPL = Array.isArray(req.productLine) ? req.productLine[0] : req.productLine;
-  const protoFile = `products/${primaryPL}/${req.folderName}/prototype-${platform}.html`;
+  const protoFile = `/products/${encodeURIComponent(primaryPL)}/${encodeURIComponent(req.folderName)}/prototype-${platform}.html`;
   frame.src = protoFile;
+  
+  // 有原型时，恢复 iframe 结构
+  container.innerHTML = `<iframe id="prototype-frame" class="w-full h-full border-0"></iframe>`;
+  
+  // 重新获取 iframe 引用
+  const newFrame = document.getElementById('prototype-frame');
+  newFrame.src = protoFile;
 
   if (platform === 'mobile') {
     container.style.width = '375px';
@@ -690,6 +833,101 @@ function cancelDocEdit() {
   editBtn.classList.remove('hidden');
   saveBtn.classList.add('hidden');
   cancelBtn.classList.add('hidden');
+}
+
+// 格式化时间戳显示
+function formatVersionTime(timestamp) {
+  const d = new Date(timestamp.replace(/-/g, 'T').slice(0, 19));
+  const now = new Date();
+  const diff = (now - d) / 1000;
+
+  if (diff < 60) return '刚刚';
+  if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)} 天前`;
+
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// 显示版本历史弹窗
+async function showVersionHistory() {
+  const modal = document.getElementById('version-history-modal');
+  const listContainer = document.getElementById('version-list');
+  const previewHeader = document.getElementById('version-preview-header');
+  const previewContent = document.getElementById('version-preview-content');
+
+  modal.classList.remove('hidden');
+  listContainer.innerHTML = '<div class="text-sm text-ink-400 px-2 py-4 text-center">加载中...</div>';
+  previewHeader.textContent = '';
+  previewContent.innerHTML = '';
+
+  try {
+    const res = await fetch(`/api/requirements/${currentReqId}/history`);
+    const data = await res.json();
+
+    if (data.versions.length === 0) {
+      listContainer.innerHTML = '<div class="text-sm text-ink-400 px-2 py-4 text-center">暂无历史版本</div>';
+      return;
+    }
+
+    // 渲染版本列表
+    listContainer.innerHTML = data.versions.map((v, idx) => `
+      <div onclick="showVersionContent('${v.timestamp}')"
+           class="version-item px-3 py-2.5 rounded-xl cursor-pointer hover:bg-ink-50 transition-colors text-sm ${idx === 0 ? 'bg-ink-50 border border-ink-200' : ''}"
+           id="ver-${v.timestamp}">
+        <div class="text-ink-700 font-medium">${formatVersionTime(v.timestamp)}</div>
+        <div class="text-xs text-ink-400 mt-0.5">${v.filename}</div>
+      </div>
+    `).join('');
+
+    // 默认显示最新版本
+    showVersionContent(data.versions[0].timestamp);
+  } catch (e) {
+    console.error('加载版本历史失败:', e);
+    listContainer.innerHTML = '<div class="text-sm text-red-500 px-2 py-4 text-center">加载失败</div>';
+  }
+}
+
+// 显示指定版本内容
+async function showVersionContent(timestamp) {
+  const previewHeader = document.getElementById('version-preview-header');
+  const previewContent = document.getElementById('version-preview-content');
+
+  // 更新选中状态
+  document.querySelectorAll('.version-item').forEach(el => {
+    el.classList.remove('bg-ink-50', 'border', 'border-ink-200');
+  });
+  const selected = document.getElementById(`ver-${timestamp}`);
+  if (selected) selected.classList.add('bg-ink-50', 'border', 'border-ink-200');
+
+  try {
+    const res = await fetch(`/api/requirements/${currentReqId}/history/${timestamp}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      previewHeader.textContent = '版本不存在';
+      previewContent.innerHTML = '';
+      return;
+    }
+
+    const d = new Date(data.created);
+    const timeStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+    previewHeader.textContent = `版本时间：${timeStr}    文件大小：${(data.size / 1024).toFixed(1)} KB`;
+
+    // 提取 body 内容并渲染
+    const match = data.content.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/);
+    const body = match ? match[1] : data.content;
+    previewContent.innerHTML = marked.parse(body);
+  } catch (e) {
+    console.error('加载版本内容失败:', e);
+    previewHeader.textContent = '加载失败';
+    previewContent.innerHTML = '';
+  }
+}
+
+// 关闭版本历史弹窗
+function closeVersionHistory() {
+  document.getElementById('version-history-modal').classList.add('hidden');
 }
 
 // 离开页面时检查未保存内容
@@ -847,6 +1085,9 @@ function showListPage() {
     case 'sprint':
       showSprintView();
       break;
+    case 'drafts':
+      showDraftsPage();
+      break;
     case 'home':
       showHome();
       break;
@@ -862,6 +1103,8 @@ function hideAllPages() {
   document.getElementById('detail-page').classList.add('hidden');
   document.getElementById('archive-page').classList.add('hidden');
   document.getElementById('sprint-page').classList.add('hidden');
+  document.getElementById('drafts-page').classList.add('hidden');
+  document.getElementById('draft-detail-page').classList.add('hidden');
 }
 
 // 显示归档页
@@ -1983,3 +2226,508 @@ async function handleSprintListDrop(e, targetSprint) {
 
 // 启动
 init();
+
+// ========== 需求池 ==========
+
+// 显示需求池页面
+function showDraftsPage() {
+  previousPage = 'drafts';
+  draftTypeFilter = '';
+  draftStatusFilter = '';
+  hideAllPages();
+  document.getElementById('drafts-page').classList.remove('hidden');
+  renderDraftsPage();
+}
+
+// 渲染需求池页面
+function renderDraftsPage() {
+  const container = document.getElementById('drafts-list');
+  
+  // 筛选草稿
+  let drafts = currentData.drafts;
+  if (draftTypeFilter) {
+    drafts = drafts.filter(d => d.type === draftTypeFilter);
+  }
+  if (draftStatusFilter) {
+    drafts = drafts.filter(d => d.status === draftStatusFilter);
+  }
+  
+  // 渲染 Tab
+  const allCount = currentData.drafts.length;
+  const ideaCount = currentData.drafts.filter(d => d.type === 'idea').length;
+  const protoCount = currentData.drafts.filter(d => d.type === 'prototype').length;
+  const activeCount = currentData.drafts.filter(d => d.status !== 'published' && d.status !== 'archived').length;
+  
+  document.getElementById('drafts-type-tabs').innerHTML = [
+    { label: `全部 (${allCount})`, filter: '', count: allCount },
+    { label: `需求草稿 (${ideaCount})`, filter: 'idea', count: ideaCount },
+    { label: `原型草稿 (${protoCount})`, filter: 'prototype', count: protoCount }
+  ].map(t => `
+    <button onclick="filterDraftsByType('${t.filter}')" 
+            class="px-4 py-2 text-sm border border-ink-200 rounded-full hover:border-ink-400 hover:text-ink-600 transition-colors whitespace-nowrap ${draftTypeFilter === t.filter ? 'bg-ink-800 text-white border-ink-800' : ''}">
+      ${t.label}
+    </button>
+  `).join('');
+  
+  // 状态筛选
+  document.getElementById('drafts-status-tabs').innerHTML = `
+    <button onclick="filterDraftsByStatus('')" class="px-3 py-1.5 text-xs border border-ink-200 rounded-lg hover:border-ink-400 transition-colors ${draftStatusFilter === '' ? 'bg-ink-100' : ''}">
+      全部状态
+    </button>
+    <button onclick="filterDraftsByStatus('draft')" class="px-3 py-1.5 text-xs border border-ink-200 rounded-lg hover:border-ink-400 transition-colors ${draftStatusFilter === 'draft' ? 'bg-ink-100' : ''}">
+      草稿
+    </button>
+    <button onclick="filterDraftsByStatus('in_progress')" class="px-3 py-1.5 text-xs border border-ink-200 rounded-lg hover:border-ink-400 transition-colors ${draftStatusFilter === 'in_progress' ? 'bg-ink-100' : ''}">
+      进行中
+    </button>
+    <button onclick="filterDraftsByStatus('published')" class="px-3 py-1.5 text-xs border border-ink-200 rounded-lg hover:border-ink-400 transition-colors ${draftStatusFilter === 'published' ? 'bg-ink-100' : ''}">
+      已发布
+    </button>
+    <button onclick="filterDraftsByStatus('archived')" class="px-3 py-1.5 text-xs border border-ink-200 rounded-lg hover:border-ink-400 transition-colors ${draftStatusFilter === 'archived' ? 'bg-ink-100' : ''}">
+      已搁置
+    </button>
+  `;
+  
+  // 渲染列表
+  if (drafts.length === 0) {
+    container.innerHTML = `
+      <div class="text-center text-ink-500 text-sm py-20">
+        <div class="mb-4">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none" class="mx-auto text-ink-300">
+            <rect x="8" y="12" width="32" height="28" rx="2" stroke="currentColor" stroke-width="2"/>
+            <path d="M8 20h32" stroke="currentColor" stroke-width="2"/>
+            <path d="M16 8h16v4H16z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <p>暂无草稿</p>
+        <p class="text-xs mt-1">点击上方「新建草稿」添加</p>
+      </div>
+    `;
+    return;
+  }
+  
+  container.innerHTML = drafts.map(draft => {
+    const typeIcon = draft.type === 'idea' 
+      ? '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2L10 6H14L11 9L12 14L8 11L4 14L5 9L2 6H6L8 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>'
+      : '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M2 6h12" stroke="currentColor" stroke-width="1.5"/></svg>';
+    
+    const typeLabel = draft.type === 'idea' ? '需求' : '原型';
+    const typeClass = draft.type === 'idea' ? 'bg-ink-100 text-ink-600' : 'bg-ink-50 text-ink-500';
+    
+    const statusLabel = { draft: '草稿', in_progress: '进行中', published: '已发布', archived: '已搁置' }[draft.status] || draft.status;
+    const statusClass = { draft: 'bg-ink-50 text-ink-500', in_progress: 'bg-blue-50 text-blue-600', published: 'bg-green-50 text-green-600', archived: 'bg-ink-100 text-ink-400' }[draft.status] || 'bg-ink-50 text-ink-500';
+    
+    const priorityLabel = { low: '低', medium: '中', high: '高' }[draft.priority] || draft.priority || '';
+    const priorityBadge = priorityLabel ? `<span class="text-xs text-ink-500">${priorityLabel}优先级</span>` : '';
+    
+    const sourceLabel = { user_feedback: '用户反馈', competitor: '竞品', tech: '技术优化', self: '自主' }[draft.source] || draft.source || '';
+    const sourceBadge = sourceLabel ? `<span class="px-2 py-0.5 bg-ink-50 rounded text-xs text-ink-500">${sourceLabel}</span>` : '';
+    
+    const publishedId = draft.published_id ? `<span class="font-mono text-xs text-green-600 ml-2">→ ${draft.published_id}</span>` : '';
+    
+    return `
+      <div class="bg-white rounded-2xl border border-ink-100 p-5 hover:border-ink-200 hover:shadow-sm transition-all cursor-pointer"
+           onclick="showDraftDetail('${draft.id}')">
+        <div class="flex items-start justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs text-ink-500">${draft.id}</span>
+            ${publishedId}
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="px-2 py-0.5 ${typeClass} rounded text-xs">${typeIcon} ${typeLabel}</span>
+            <span class="px-2 py-0.5 ${statusClass} rounded text-xs">${statusLabel}</span>
+          </div>
+        </div>
+        <h3 class="text-base font-medium text-ink-800 mb-2">${draft.title || '无标题'}</h3>
+        <div class="flex items-center gap-3 text-xs text-ink-500">
+          ${priorityBadge}
+          ${sourceBadge}
+          ${draft.updated_at ? `<span>${formatDate(draft.updated_at)}</span>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// 按类型筛选草稿
+function filterDraftsByType(type) {
+  draftTypeFilter = type;
+  renderDraftsPage();
+}
+
+// 按状态筛选草稿
+function filterDraftsByStatus(status) {
+  draftStatusFilter = status;
+  renderDraftsPage();
+}
+
+// 显示创建草稿弹窗
+function showCreateDraftModal() {
+  const modal = document.getElementById('create-draft-modal');
+  modal.classList.remove('hidden');
+  
+  // 收集所有唯一产品线
+  const settingsProductLines = settings.productLines || [];
+  const reqProductLines = currentData.requirements.flatMap(r =>
+    Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : [])
+  );
+  const productLines = [...new Set([...settingsProductLines, ...reqProductLines])];
+  
+  // 渲染产品线选项
+  document.getElementById('draft-product-line-select').innerHTML = 
+    '<option value="">未指定</option>' +
+    productLines.map(pl => `<option value="${pl}">${pl}</option>`).join('');
+  
+  // 清空输入
+  document.getElementById('draft-title').value = '';
+  document.getElementById('draft-priority').value = 'medium';
+  document.getElementById('draft-source').value = '';
+  document.getElementById('draft-type-idea').checked = true;
+  
+  setTimeout(() => document.getElementById('draft-title').focus(), 100);
+}
+
+function closeCreateDraftModal() {
+  document.getElementById('create-draft-modal').classList.add('hidden');
+}
+
+// 创建草稿
+async function createDraft() {
+  const title = document.getElementById('draft-title').value.trim();
+  const priority = document.getElementById('draft-priority').value;
+  const source = document.getElementById('draft-source').value;
+  const productLine = document.getElementById('draft-product-line-select').value;
+  const type = document.getElementById('draft-type-idea').checked ? 'idea' : 'prototype';
+  
+  if (!title) {
+    alert('请输入标题');
+    return;
+  }
+  
+  try {
+    const res = await fetch('/api/drafts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, type, priority, source, product_line: productLine })
+    });
+    
+    const data = await res.json();
+    
+    if (res.ok) {
+      closeCreateDraftModal();
+      await refreshData();
+      showToast(`草稿 ${data.id} 已创建`);
+      showDraftDetail(data.id);
+    } else {
+      alert(data.error || '创建失败');
+    }
+  } catch (e) {
+    console.error('创建草稿失败:', e);
+    alert('创建失败，请检查网络');
+  }
+}
+
+// 显示草稿详情页
+function showDraftDetail(draftId) {
+  currentDraftId = draftId;
+  previousPage = 'drafts';
+  hideAllPages();
+  document.getElementById('draft-detail-page').classList.remove('hidden');
+  renderDraftDetail();
+}
+
+// 渲染草稿详情页
+function renderDraftDetail() {
+  const draft = currentData.drafts.find(d => d.id === currentDraftId);
+  if (!draft) {
+    document.getElementById('draft-detail-content').innerHTML = '<div class="text-center text-ink-500 py-20">草稿不存在</div>';
+    return;
+  }
+  
+  const isIdea = draft.type === 'idea';
+  const statusOptions = [
+    { value: 'draft', label: '草稿' },
+    { value: 'in_progress', label: '进行中' },
+    { value: 'published', label: '已发布' },
+    { value: 'archived', label: '已搁置' }
+  ];
+  
+  document.getElementById('draft-detail-header').innerHTML = `
+    <span class="font-mono text-xs text-ink-500">${draft.id}</span>
+    <span class="mx-2 text-ink-200">·</span>
+    <span class="text-sm">${draft.title || '无标题'}</span>
+    <span class="mx-2 text-ink-200">·</span>
+    <span class="px-2 py-0.5 ${isIdea ? 'bg-ink-100 text-ink-600' : 'bg-ink-50 text-ink-500'} rounded text-xs">
+      ${isIdea ? '需求草稿' : '原型草稿'}
+    </span>
+  `;
+  
+  document.getElementById('draft-detail-content').innerHTML = `
+    <div class="space-y-6">
+      <!-- 基本信息 -->
+      <div class="bg-white rounded-2xl border border-ink-100 p-6">
+        <h3 class="text-sm font-semibold text-ink-700 mb-4">基本信息</h3>
+        <div class="grid grid-cols-2 gap-4 text-sm">
+          <div>
+            <span class="text-ink-500">标题</span>
+            <input type="text" id="draft-edit-title" value="${draft.title || ''}" 
+                   class="w-full mt-1 px-3 py-2 border border-ink-200 rounded-lg text-ink-800 focus:outline-none focus:border-ink-400">
+          </div>
+          <div>
+            <span class="text-ink-500">状态</span>
+            <select id="draft-edit-status" class="w-full mt-1 px-3 py-2 border border-ink-200 rounded-lg bg-white text-ink-800 focus:outline-none focus:border-ink-400">
+              ${statusOptions.map(s => `<option value="${s.value}" ${draft.status === s.value ? 'selected' : ''}>${s.label}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <span class="text-ink-500">优先级</span>
+            <select id="draft-edit-priority" class="w-full mt-1 px-3 py-2 border border-ink-200 rounded-lg bg-white text-ink-800 focus:outline-none focus:border-ink-400">
+              <option value="low" ${draft.priority === 'low' ? 'selected' : ''}>低</option>
+              <option value="medium" ${(!draft.priority || draft.priority === 'medium') ? 'selected' : ''}>中</option>
+              <option value="high" ${draft.priority === 'high' ? 'selected' : ''}>高</option>
+            </select>
+          </div>
+          <div>
+            <span class="text-ink-500">来源</span>
+            <select id="draft-edit-source" class="w-full mt-1 px-3 py-2 border border-ink-200 rounded-lg bg-white text-ink-800 focus:outline-none focus:border-ink-400">
+              <option value="">未指定</option>
+              <option value="user_feedback" ${draft.source === 'user_feedback' ? 'selected' : ''}>用户反馈</option>
+              <option value="competitor" ${draft.source === 'competitor' ? 'selected' : ''}>竞品分析</option>
+              <option value="tech" ${draft.source === 'tech' ? 'selected' : ''}>技术优化</option>
+              <option value="self" ${draft.source === 'self' ? 'selected' : ''}>自主提出</option>
+            </select>
+          </div>
+          <div>
+            <span class="text-ink-500">关联产品线</span>
+            <input type="text" id="draft-edit-product-line" value="${draft.product_line || ''}" 
+                   class="w-full mt-1 px-3 py-2 border border-ink-200 rounded-lg text-ink-800 focus:outline-none focus:border-ink-400"
+                   placeholder="未指定">
+          </div>
+          <div>
+            <span class="text-ink-500">发布时间</span>
+            <input type="date" id="draft-edit-due-date" 
+                   class="w-full mt-1 px-3 py-2 border border-ink-200 rounded-lg text-ink-800 focus:outline-none focus:border-ink-400">
+          </div>
+        </div>
+        <div class="mt-4 flex justify-end">
+          <button onclick="updateDraft()" class="px-4 py-2 bg-ink-800 text-white text-sm font-medium rounded-lg hover:bg-ink-700 transition-colors">
+            保存修改
+          </button>
+        </div>
+      </div>
+      
+      ${isIdea ? `
+      <!-- 文档内容 -->
+      <div class="bg-white rounded-2xl border border-ink-100 p-6">
+        <h3 class="text-sm font-semibold text-ink-700 mb-4">文档内容</h3>
+        <textarea id="draft-edit-body" rows="12"
+                  class="w-full px-4 py-3 border border-ink-200 rounded-xl text-sm font-mono text-ink-800 focus:outline-none focus:border-ink-400 resize-none"
+                  placeholder="输入需求文档内容...">${draft.body || ''}</textarea>
+        <div class="mt-4 flex justify-end">
+          <button onclick="updateDraftBody()" class="px-4 py-2 bg-ink-800 text-white text-sm font-medium rounded-lg hover:bg-ink-700 transition-colors">
+            保存文档
+          </button>
+        </div>
+      </div>
+      ` : `
+      <!-- 原型预览 -->
+      <div class="bg-white rounded-2xl border border-ink-100 p-6">
+        <h3 class="text-sm font-semibold text-ink-700 mb-4">原型预览</h3>
+        <div class="border border-ink-100 rounded-xl overflow-hidden">
+          <iframe src="/drafts/${encodeURIComponent(draft.bodyPath?.split(/[/\\]/).pop() || '')}" 
+                  class="w-full h-[500px] border-0"></iframe>
+        </div>
+      </div>
+      `}
+      
+      <!-- 发布选项 -->
+      ${draft.status !== 'published' ? `
+      <div class="bg-white rounded-2xl border border-ink-100 p-6">
+        <h3 class="text-sm font-semibold text-ink-700 mb-4">发布为正式需求</h3>
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <div>
+            <span class="text-sm text-ink-600">目标产品线</span>
+            <select id="publish-product-line" class="w-full mt-1 px-3 py-2 border border-ink-200 rounded-lg bg-white text-ink-800 focus:outline-none focus:border-ink-400">
+              ${(settings.productLines || []).map(pl => `<option value="${pl}" ${pl === draft.product_line ? 'selected' : ''}>${pl}</option>`).join('')}
+              ${draft.product_line && !settings.productLines?.includes(draft.product_line) ? `<option value="${draft.product_line}" selected>${draft.product_line}</option>` : ''}
+            </select>
+          </div>
+          <div>
+            <span class="text-sm text-ink-600">优先级</span>
+            <select id="publish-priority" class="w-full mt-1 px-3 py-2 border border-ink-200 rounded-lg bg-white text-ink-800 focus:outline-none focus:border-ink-400">
+              <option value="P0" ${(!draft.priority || draft.priority === 'high') ? 'selected' : ''}>P0 - 最高</option>
+              <option value="P1" ${draft.priority === 'medium' ? 'selected' : ''}>P1 - 高</option>
+              <option value="P2" ${draft.priority === 'low' ? 'selected' : ''}>P2 - 中</option>
+            </select>
+          </div>
+        </div>
+        <button onclick="publishDraft()" class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-500 transition-colors">
+          发布需求
+        </button>
+      </div>
+      ` : ''}
+      
+      <!-- 操作 -->
+      <div class="flex justify-between items-center">
+        <div class="text-xs text-ink-500">
+          创建于: ${draft.created_at ? new Date(draft.created_at).toLocaleString('zh-CN') : '-'}
+          ${draft.published_id ? `<br>已发布为: <span class="text-green-600">${draft.published_id}</span>` : ''}
+        </div>
+        <div class="flex gap-3">
+          ${draft.status !== 'published' ? `
+          <button onclick="archiveDraft()" class="px-4 py-2 text-sm text-ink-600 border border-ink-200 rounded-lg hover:bg-ink-50 transition-colors">
+            搁置
+          </button>
+          ` : ''}
+          <button onclick="confirmDeleteDraft()" class="px-4 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors">
+            删除
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// 更新草稿基本信息
+async function updateDraft() {
+  const title = document.getElementById('draft-edit-title').value.trim();
+  const status = document.getElementById('draft-edit-status').value;
+  const priority = document.getElementById('draft-edit-priority').value;
+  const source = document.getElementById('draft-edit-source').value;
+  const product_line = document.getElementById('draft-edit-product-line').value;
+  
+  if (!title) {
+    alert('标题不能为空');
+    return;
+  }
+  
+  try {
+    const res = await fetch(`/api/drafts/${currentDraftId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, status, priority, source, product_line })
+    });
+    
+    if (res.ok) {
+      showToast('草稿已更新');
+      await refreshData();
+    } else {
+      const data = await res.json();
+      alert(data.error || '更新失败');
+    }
+  } catch (e) {
+    console.error('更新草稿失败:', e);
+    alert('更新失败');
+  }
+}
+
+// 更新草稿文档内容
+async function updateDraftBody() {
+  const body = document.getElementById('draft-edit-body').value;
+  
+  try {
+    const res = await fetch(`/api/drafts/${currentDraftId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body })
+    });
+    
+    if (res.ok) {
+      showToast('文档已保存');
+      await refreshData();
+    } else {
+      const data = await res.json();
+      alert(data.error || '保存失败');
+    }
+  } catch (e) {
+    console.error('保存文档失败:', e);
+    alert('保存失败');
+  }
+}
+
+// 发布草稿
+async function publishDraft() {
+  if (!confirm('确定要发布这个草稿为正式需求吗？')) return;
+  
+  const productLine = document.getElementById('publish-product-line').value;
+  const priority = document.getElementById('publish-priority').value;
+  
+  try {
+    const res = await fetch(`/api/drafts/${currentDraftId}/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ productLine, priority })
+    });
+    
+    const data = await res.json();
+    
+    if (res.ok) {
+      showToast(`已发布为需求 ${data.id}`);
+      await refreshData();
+      // 跳转到需求详情
+      showDetail(data.id);
+    } else {
+      alert(data.error || '发布失败');
+    }
+  } catch (e) {
+    console.error('发布草稿失败:', e);
+    alert('发布失败');
+  }
+}
+
+// 搁置草稿
+async function archiveDraft() {
+  if (!confirm('确定要搁置这个草稿吗？')) return;
+  
+  try {
+    const res = await fetch(`/api/drafts/${currentDraftId}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'archived' })
+    });
+    
+    if (res.ok) {
+      showToast('草稿已搁置');
+      await refreshData();
+      renderDraftDetail();
+    } else {
+      const data = await res.json();
+      alert(data.error || '操作失败');
+    }
+  } catch (e) {
+    console.error('搁置草稿失败:', e);
+    alert('操作失败');
+  }
+}
+
+// 确认删除草稿
+function confirmDeleteDraft() {
+  if (!confirm('确定要删除这个草稿吗？此操作不可恢复。')) return;
+  deleteDraft();
+}
+
+// 删除草稿
+async function deleteDraft() {
+  try {
+    const res = await fetch(`/api/drafts/${currentDraftId}`, {
+      method: 'DELETE'
+    });
+    
+    if (res.ok) {
+      showToast('草稿已删除');
+      await refreshData();
+      showDraftsPage();
+    } else {
+      const data = await res.json();
+      alert(data.error || '删除失败');
+    }
+  } catch (e) {
+    console.error('删除草稿失败:', e);
+    alert('删除失败');
+  }
+}
+
+// 返回需求池列表
+function backToDrafts() {
+  showDraftsPage();
+}

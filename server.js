@@ -5,12 +5,16 @@ const path = require('path');
 const yaml = require('js-yaml');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const WORKSPACE = __dirname;
+const PORT = process.env.PORT || 3456;
+const WORKSPACE = path.resolve(__dirname);
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(WORKSPACE, 'public')));
+// 静态文件服务：products/ 和 archive/ 用于原型 iframe 访问
+app.use('/products', express.static(path.join(WORKSPACE, 'products')));
+app.use('/archive', express.static(path.join(WORKSPACE, 'archive')));
+app.use('/drafts', express.static(path.join(WORKSPACE, 'drafts')));
 
 // 工具函数：解析 requirement.md
 function parseRequirement(filePath) {
@@ -43,8 +47,9 @@ function scanRequirements() {
     
     for (const pl of productLines) {
       const plPath = path.join(dir, pl.name);
-      const reqDirs = fs.readdirSync(plPath, { withFileTypes: true })
-        .filter(d => d.isDirectory() && d.name.startsWith('REQ-'));
+      if (!fs.existsSync(plPath)) continue;
+      const entries = fs.readdirSync(plPath, { withFileTypes: true });
+      const reqDirs = entries.filter(d => d.isDirectory() && d.name.startsWith('REQ-'));
       
       for (const reqDir of reqDirs) {
         const reqPath = path.join(plPath, reqDir.name);
@@ -82,6 +87,97 @@ function scanRequirements() {
   scanDir(archiveDir, true);
   
   return requirements;
+}
+
+// 工具函数：扫描所有草稿（需求池）
+function scanDrafts() {
+  const drafts = [];
+  const draftsDir = path.join(WORKSPACE, 'drafts');
+  
+  if (!fs.existsSync(draftsDir)) {
+    fs.mkdirSync(draftsDir, { recursive: true });
+    return drafts;
+  }
+  
+  const files = fs.readdirSync(draftsDir, { withFileTypes: true })
+    .filter(f => f.isFile() && (f.name.endsWith('.md') || f.name.endsWith('.html')));
+  
+  for (const file of files) {
+    const filePath = path.join(draftsDir, file.name);
+    const isMd = file.name.endsWith('.md');
+    
+    if (isMd) {
+      // 需求草稿（MD 文件）
+      try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+        
+        if (match) {
+          try {
+            const frontMatter = yaml.load(match[1]);
+            drafts.push({
+              ...frontMatter,
+              body: match[2].trim(),
+              bodyPath: filePath,
+              type: 'idea'
+            });
+          } catch (e) {
+            // 无效的 YAML 格式，作为简单文本草稿处理
+            drafts.push({
+              id: file.name.replace(/\.md$/, ''),
+              title: file.name.replace(/\.md$/, ''),
+              body: content,
+              bodyPath: filePath,
+              type: 'idea',
+              status: 'draft'
+            });
+          }
+        } else {
+          // 无 front matter，作为简单文本草稿
+          drafts.push({
+            id: file.name.replace(/\.md$/, ''),
+            title: file.name.replace(/\.md$/, ''),
+            body: content,
+            bodyPath: filePath,
+            type: 'idea',
+            status: 'draft'
+          });
+        }
+      } catch (e) {
+        console.error('读取草稿失败:', filePath, e.message);
+      }
+    } else {
+      // 原型草稿（HTML 文件）
+      drafts.push({
+        id: file.name.replace(/\.html$/, ''),
+        title: file.name.replace(/\.html$/, ''),
+        body: '',
+        bodyPath: filePath,
+        type: 'prototype',
+        status: 'draft'
+      });
+    }
+  }
+  
+  // 排序：按 id 倒序（最新的在前）
+  drafts.sort((a, b) => (b.id || '').localeCompare(a.id || ''));
+  
+  return drafts;
+}
+
+// 工具函数：生成下一个可用草稿 ID
+function getNextDraftId() {
+  const drafts = scanDrafts();
+  if (drafts.length === 0) return 'DRAFT-001';
+  
+  const nums = drafts.map(d => {
+    const match = (d.id || '').match(/DRAFT-(\d{3})/);
+    return match ? parseInt(match[1], 10) : 0;
+  });
+  
+  const maxNum = Math.max(...nums);
+  const nextNum = String(maxNum + 1).padStart(3, '0');
+  return `DRAFT-${nextNum}`;
 }
 
 // 工具函数：读取迭代数据
@@ -237,6 +333,284 @@ app.get('/api/requirements', (req, res) => {
   res.json({ requirements });
 });
 
+// API：获取所有草稿（需求池）
+app.get('/api/drafts', (req, res) => {
+  const drafts = scanDrafts();
+  res.json({ drafts });
+});
+
+// API：创建草稿
+app.post('/api/drafts', (req, res) => {
+  try {
+    const {
+      title,
+      type = 'idea',
+      priority = 'medium',
+      source = '',
+      product_line = '',
+      tags = [],
+      body = ''
+    } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: '标题为必填项' });
+    }
+
+    const id = getNextDraftId();
+    const today = new Date().toISOString();
+    
+    // 构建文件名
+    const slug = generateSlug(title);
+    const fileName = type === 'prototype' 
+      ? `${id}-${slug}.html`
+      : `${id}-${slug}.md`;
+    
+    const draftsDir = path.join(WORKSPACE, 'drafts');
+    if (!fs.existsSync(draftsDir)) {
+      fs.mkdirSync(draftsDir, { recursive: true });
+    }
+    
+    const filePath = path.join(draftsDir, fileName);
+    
+    let content;
+    if (type === 'idea') {
+      // 需求草稿 - 使用 YAML front matter
+      const frontMatter = {
+        id,
+        type: 'idea',
+        title: title.trim(),
+        status: 'draft',
+        priority,
+        source,
+        product_line,
+        tags,
+        created_at: today,
+        updated_at: today
+      };
+      content = `---\n${yaml.dump(frontMatter)}---\n${body || `# ${title}\n\n`}`;
+    } else {
+      // 原型草稿 - 简单的 HTML 文件
+      content = body || `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <style>
+    body { font-family: system-ui; padding: 20px; }
+  </style>
+</head>
+<body>
+  <h1>${title}</h1>
+  <p>原型草稿 - 待完善</p>
+</body>
+</html>`;
+    }
+    
+    fs.writeFileSync(filePath, content, 'utf8');
+    
+    res.json({ success: true, id, type, path: fileName });
+  } catch (err) {
+    console.error('创建草稿失败:', err);
+    res.status(500).json({ error: '创建失败: ' + err.message });
+  }
+});
+
+// API：获取单个草稿
+app.get('/api/drafts/:id', (req, res) => {
+  const drafts = scanDrafts();
+  const draft = drafts.find(d => d.id === req.params.id);
+  
+  if (!draft) {
+    return res.status(404).json({ error: '草稿不存在' });
+  }
+  
+  res.json(draft);
+});
+
+// API：更新草稿
+app.put('/api/drafts/:id', (req, res) => {
+  try {
+    const drafts = scanDrafts();
+    const draft = drafts.find(d => d.id === req.params.id);
+    
+    if (!draft) {
+      return res.status(404).json({ error: '草稿不存在' });
+    }
+    
+    const { title, body, priority, source, product_line, tags, status } = req.body;
+    const today = new Date().toISOString();
+    
+    // 读取原文件
+    let content = fs.readFileSync(draft.bodyPath, 'utf-8');
+    
+    if (draft.type === 'idea') {
+      // 解析并更新 YAML front matter
+      const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+      if (match) {
+        const frontMatter = yaml.load(match[1]) || {};
+        if (title) frontMatter.title = title;
+        if (priority) frontMatter.priority = priority;
+        if (source !== undefined) frontMatter.source = source;
+        if (product_line !== undefined) frontMatter.product_line = product_line;
+        if (tags) frontMatter.tags = tags;
+        if (status) frontMatter.status = status;
+        frontMatter.updated_at = today;
+        
+        const newBody = body !== undefined ? body : match[2];
+        content = `---\n${yaml.dump(frontMatter)}---\n${newBody}`;
+      }
+    } else {
+      // 原型草稿 - 直接更新内容
+      if (body) content = body;
+    }
+    
+    fs.writeFileSync(draft.bodyPath, content, 'utf-8');
+    
+    res.json({ success: true, id: req.params.id });
+  } catch (err) {
+    console.error('更新草稿失败:', err);
+    res.status(500).json({ error: '更新失败: ' + err.message });
+  }
+});
+
+// API：更新草稿状态
+app.post('/api/drafts/:id/status', (req, res) => {
+  try {
+    const { status } = req.body;
+    const drafts = scanDrafts();
+    const draft = drafts.find(d => d.id === req.params.id);
+    
+    if (!draft) {
+      return res.status(404).json({ error: '草稿不存在' });
+    }
+    
+    if (draft.type !== 'idea') {
+      return res.status(400).json({ error: '原型草稿不支持状态更新' });
+    }
+    
+    const content = fs.readFileSync(draft.bodyPath, 'utf-8');
+    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    
+    if (match) {
+      const frontMatter = yaml.load(match[1]) || {};
+      frontMatter.status = status;
+      frontMatter.updated_at = new Date().toISOString();
+      
+      const newContent = `---\n${yaml.dump(frontMatter)}---\n${match[2]}`;
+      fs.writeFileSync(draft.bodyPath, newContent, 'utf-8');
+      
+      res.json({ success: true, id: req.params.id, status });
+    } else {
+      res.status(500).json({ error: '文件格式错误' });
+    }
+  } catch (err) {
+    console.error('更新草稿状态失败:', err);
+    res.status(500).json({ error: '更新失败: ' + err.message });
+  }
+});
+
+// API：发布草稿为正式需求
+app.post('/api/drafts/:id/publish', (req, res) => {
+  try {
+    const { productLine, priority, platform } = req.body;
+    const drafts = scanDrafts();
+    const draft = drafts.find(d => d.id === req.params.id);
+    
+    if (!draft) {
+      return res.status(404).json({ error: '草稿不存在' });
+    }
+    
+    // 生成正式需求 ID
+    const id = getNextReqId();
+    const slug = generateSlug(draft.title || '无标题');
+    const folderName = `${id}-${slug}`;
+    const today = new Date().toISOString().split('T')[0];
+    
+    // 确定产品线
+    const productLines = productLine 
+      ? (Array.isArray(productLine) ? productLine : [productLine])
+      : (draft.product_line ? (Array.isArray(draft.product_line) ? draft.product_line : [draft.product_line]) : ['未分类']);
+    const primaryProductLine = productLines[0];
+    
+    // 确保产品线目录存在
+    const plDir = path.join(WORKSPACE, 'products', primaryProductLine);
+    if (!fs.existsSync(plDir)) {
+      fs.mkdirSync(plDir, { recursive: true });
+    }
+    
+    // 创建需求文件夹
+    const reqDir = path.join(plDir, folderName);
+    if (fs.existsSync(reqDir)) {
+      return res.status(400).json({ error: '需求文件夹已存在' });
+    }
+    fs.mkdirSync(reqDir, { recursive: true });
+    
+    // 获取设置
+    const settings = getSettings();
+    
+    // 构建 YAML front matter
+    const frontMatter = {
+      id,
+      title: draft.title || '无标题',
+      status: settings.statusList[0] || '设计中',
+      priority: priority || draft.priority || 'P2',
+      platform: platform || ['web'],
+      product_line: productLines,
+      sprint: '',
+      developer: '',
+      requester: '',
+      created: today,
+      updated: today,
+      due_date: '',
+      tags: draft.tags || [],
+      draft_id: draft.id  // 关联原始草稿
+    };
+    
+    const body = draft.body || '## 需求描述\n\n## 验收标准\n\n## 备注\n';
+    const reqContent = `---\n${yaml.dump(frontMatter)}---\n${body}`;
+    
+    const reqFile = path.join(reqDir, 'requirement.md');
+    fs.writeFileSync(reqFile, reqContent, 'utf-8');
+    
+    // 更新草稿状态为 published
+    const draftContent = fs.readFileSync(draft.bodyPath, 'utf-8');
+    const match = draftContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    if (match) {
+      const fm = yaml.load(match[1]) || {};
+      fm.status = 'published';
+      fm.published_id = id;
+      fm.updated_at = new Date().toISOString();
+      const newDraftContent = `---\n${yaml.dump(fm)}---\n${match[2]}`;
+      fs.writeFileSync(draft.bodyPath, newDraftContent, 'utf-8');
+    }
+    
+    res.json({ success: true, id, draftId: draft.id, folderName });
+  } catch (err) {
+    console.error('发布草稿失败:', err);
+    res.status(500).json({ error: '发布失败: ' + err.message });
+  }
+});
+
+// API：删除草稿
+app.delete('/api/drafts/:id', (req, res) => {
+  try {
+    const drafts = scanDrafts();
+    const draft = drafts.find(d => d.id === req.params.id);
+    
+    if (!draft) {
+      return res.status(404).json({ error: '草稿不存在' });
+    }
+    
+    fs.unlinkSync(draft.bodyPath);
+    
+    res.json({ success: true, id: req.params.id });
+  } catch (err) {
+    console.error('删除草稿失败:', err);
+    res.status(500).json({ error: '删除失败: ' + err.message });
+  }
+});
+
 // API：获取单个需求
 app.get('/api/requirements/:id', (req, res) => {
   const requirements = scanRequirements();
@@ -346,7 +720,7 @@ app.post('/api/requirements/:id/sprint', (req, res) => {
   }
 });
 
-// API：修改需求文档内容
+// API：修改需求文档内容（自动保存历史版本）
 app.post('/api/requirements/:id/content', (req, res) => {
   try {
     const { content } = req.body;
@@ -369,6 +743,17 @@ app.post('/api/requirements/:id/content', (req, res) => {
       frontMatter.updated = new Date().toISOString().split('T')[0];
 
       const newContent = `---\n${yaml.dump(frontMatter)}---\n${content}`;
+
+      // 保存历史版本
+      const reqDir = path.dirname(requirement.bodyPath);
+      const historyDir = path.join(reqDir, '.history');
+      if (!fs.existsSync(historyDir)) {
+        fs.mkdirSync(historyDir, { recursive: true });
+      }
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const historyFile = path.join(historyDir, `${timestamp}.md`);
+      fs.writeFileSync(historyFile, fileContent, 'utf-8');
+
       fs.writeFileSync(requirement.bodyPath, newContent);
 
       res.json({ success: true, id: req.params.id });
@@ -378,6 +763,73 @@ app.post('/api/requirements/:id/content', (req, res) => {
   } catch (err) {
     console.error('保存文档失败:', err);
     res.status(500).json({ error: '保存失败: ' + err.message });
+  }
+});
+
+// API：获取需求文档版本历史列表
+app.get('/api/requirements/:id/history', (req, res) => {
+  try {
+    const requirements = scanRequirements();
+    const requirement = requirements.find(r => r.id === req.params.id);
+
+    if (!requirement) {
+      return res.status(404).json({ error: '需求不存在' });
+    }
+
+    const reqDir = path.dirname(requirement.bodyPath);
+    const historyDir = path.join(reqDir, '.history');
+
+    if (!fs.existsSync(historyDir)) {
+      return res.json({ versions: [] });
+    }
+
+    const files = fs.readdirSync(historyDir)
+      .filter(f => f.endsWith('.md'))
+      .map(f => {
+        const filePath = path.join(historyDir, f);
+        const stats = fs.statSync(filePath);
+        const timestamp = f.replace('.md', '');
+        return { timestamp, filename: f, size: stats.size, created: stats.birthtime };
+      })
+      .sort((a, b) => b.created - a.created); // 最新在前
+
+    res.json({ versions: files });
+  } catch (err) {
+    console.error('获取版本历史失败:', err);
+    res.status(500).json({ error: '获取版本历史失败: ' + err.message });
+  }
+});
+
+// API：获取指定版本的文档内容
+app.get('/api/requirements/:id/history/:timestamp', (req, res) => {
+  try {
+    const requirements = scanRequirements();
+    const requirement = requirements.find(r => r.id === req.params.id);
+
+    if (!requirement) {
+      return res.status(404).json({ error: '需求不存在' });
+    }
+
+    const reqDir = path.dirname(requirement.bodyPath);
+    const historyDir = path.join(reqDir, '.history');
+    const historyFile = path.join(historyDir, `${req.params.timestamp}.md`);
+
+    if (!fs.existsSync(historyFile)) {
+      return res.status(404).json({ error: '版本不存在' });
+    }
+
+    const content = fs.readFileSync(historyFile, 'utf-8');
+    const stats = fs.statSync(historyFile);
+
+    res.json({
+      timestamp: req.params.timestamp,
+      content,
+      size: stats.size,
+      created: stats.birthtime
+    });
+  } catch (err) {
+    console.error('获取版本内容失败:', err);
+    res.status(500).json({ error: '获取版本内容失败: ' + err.message });
   }
 });
 
