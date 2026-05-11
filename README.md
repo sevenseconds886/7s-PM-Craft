@@ -65,6 +65,24 @@ npm run pm -- list
 
 ---
 
+## Skills 规范
+
+所有 AI 工具、Skill、手动操作遵循统一规范：
+
+**📄 [`skills/pm-craft-rules/SKILL.md`](./skills/pm-craft-rules/SKILL.md)** （v2.0.0）
+
+| 章节 | 内容 |
+|------|------|
+| §1 文件协议 | 目录结构、命名规则、ID/Slug 算法 |
+| §2 需求文档规范 | YAML front matter 字段定义、读取容错 |
+| §3 原型规范 | DesignSystem 接口、交互/保真度要求 |
+| §4 迭代数据规范 | `.sprints.json` 格式、API 端点 |
+| §5 命令协议 | `/prd-new` 等命令格式与执行流程 |
+| §6 元数据校验规则 | 外部产物导入校验清单、import 接口规范 |
+| §7 产物放置规则 | 路径模板、归档路径、设计系统配置 |
+
+---
+
 ## 技术架构
 
 ```
@@ -77,7 +95,7 @@ npm run pm -- list
 └─────────────────────────────────────┘
 ```
 
-### 文件协议
+## 文件协议
 
 ```
 {workspace}/
@@ -87,7 +105,7 @@ npm run pm -- list
 │   └── prototype-mobile.html   # 可选
 ├── archive/{product-line}/REQ-{id}-{slug}/
 ├── .sprints.json               # 迭代元数据
-└── PROTOCOL.md                 # 文件协议规则
+└── skills/pm-craft-rules/SKILL.md   # 统一规范（v2.0，替代旧 PROTOCOL.md）
 ```
 
 ### requirement.md 格式
@@ -98,15 +116,20 @@ id: REQ-000001
 title: 登录页面
 status: 设计中
 priority: P0
-platform: [web, mobile]
-product_line: 产品线A
+platform:
+  - web
+  - mobile
+product_line:           # 数组格式（v2.0+，兼容旧 string 格式）
+  - 产品线A
 sprint: 迭代1
 developer: 张三
 requester: 李四
 created: 2026-04-29
 updated: 2026-04-29
 due_date: 2026-05-15
-tags: [认证, 核心流程]
+tags:
+  - 认证
+  - 核心流程
 ---
 
 ## 需求描述
@@ -121,14 +144,41 @@ tags: [认证, 核心流程]
 |------|------|------|
 | `/api/requirements` | GET | 获取所有需求 |
 | `/api/requirements` | POST | 创建新需求 |
+| `/api/requirements/import` | POST | **导入外部产物**（自动校验/补全元数据） |
 | `/api/requirements/:id` | GET | 获取单个需求 |
 | `/api/requirements/:id/status` | POST | 修改状态 |
 | `/api/requirements/:id/priority` | POST | 修改优先级 |
 | `/api/requirements/:id/sprint` | POST | 修改迭代 |
+| `/api/requirements/:id/content` | POST | 修改文档正文 |
 | `/api/requirements/:id/archive` | POST | 归档需求 |
+| `/api/requirements/:id/prototype/import` | POST | **导入外部原型 HTML**（自动注入关联 meta） |
 | `/api/sprints` | GET | 获取迭代列表 |
 | `/api/sprints` | POST | 创建迭代 |
 | `/api/sprints/:name/close` | POST | 关闭迭代 |
+| `/api/sprints/:name/archive` | POST | 归档迭代下所有需求 |
+| `/api/settings` | GET | 获取设置 |
+| `/api/settings` | POST | 保存设置 |
+| `/api/product-lines` | POST | 创建产品线 |
+
+### 导入接口说明（v2.0 新增）
+
+```bash
+# 导入需求文档（可不含 front matter，服务端自动补全）
+curl -X POST http://localhost:3456/api/requirements/import \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "# 需求标题\n\n## 需求描述\n\n...",
+    "options": { "product_line": ["产品线A"], "priority": "P1" }
+  }'
+
+# 导入原型 HTML 到已有需求
+curl -X POST http://localhost:3456/api/requirements/REQ-000001/prototype/import \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "<html>...</html>",
+    "platform": "web"
+  }'
+```
 
 ---
 
@@ -171,3 +221,7 @@ npx playwright show-report
 - [x] 需求文档在线编辑
 - [x] 原型全屏展示
 - [x] 需求支持多产品线
+- [x] Skills 合并为统一规范（pm-craft-rules v2.0）
+- [x] 外部产物导入接口（POST /api/requirements/import）
+- [x] 原型导入接口（POST /api/requirements/:id/prototype/import）
+- [x] 元数据自动校验与补全

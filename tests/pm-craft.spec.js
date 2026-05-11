@@ -680,3 +680,247 @@ test.describe('7s-PM-Craft E2E 测试', () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API 单元测试：导入接口（pm-craft-rules §6.3）
+// 使用 Playwright 的 request context 直接调用 API，不依赖页面 UI
+// ─────────────────────────────────────────────────────────────────────────────
+
+const { request: pwRequest } = require('@playwright/test');
+
+test.describe('API: POST /api/requirements/import', () => {
+  let apiContext;
+  const API_BASE = `http://localhost:${process.env.PORT || 3456}`;
+
+  test.beforeAll(async () => {
+    apiContext = await pwRequest.newContext({ baseURL: API_BASE });
+  });
+
+  test.afterAll(async () => {
+    await apiContext.dispose();
+  });
+
+  test('应接受不含 front matter 的纯 Markdown 内容，自动补全元数据', async () => {
+    const response = await apiContext.post('/api/requirements/import', {
+      data: {
+        content: '# 无 Front Matter 的导入测试\n\n## 需求描述\n\n这是一个测试需求。\n\n## 验收标准\n\n- [ ] 验收项1',
+        options: { product_line: ['产品线A'] }
+      }
+    });
+
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.id).toMatch(/^REQ-\d{6}$/);
+    expect(body.title).toBe('无 Front Matter 的导入测试');
+    expect(Array.isArray(body.productLine)).toBe(true);
+    expect(body.productLine[0]).toBe('产品线A');
+    expect(body.path).toMatch(/requirement\.md$/);
+  });
+
+  test('应接受含 front matter 的完整 Markdown 内容', async () => {
+    const content = [
+      '---',
+      'title: 含 Front Matter 的导入测试',
+      'status: 设计中',
+      'priority: P1',
+      'product_line:',
+      '  - 产品线A',
+      '---',
+      '',
+      '## 需求描述',
+      '',
+      '完整带元数据的导入测试。'
+    ].join('\n');
+
+    const response = await apiContext.post('/api/requirements/import', {
+      data: { content }
+    });
+
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.id).toMatch(/^REQ-\d{6}$/);
+    expect(body.title).toBe('含 Front Matter 的导入测试');
+  });
+
+  test('options 字段应覆盖 front matter 中的值', async () => {
+    const content = [
+      '---',
+      'title: 覆盖测试需求',
+      'priority: P3',
+      'product_line: 产品线B',
+      '---',
+      '',
+      '## 需求描述'
+    ].join('\n');
+
+    const response = await apiContext.post('/api/requirements/import', {
+      data: {
+        content,
+        options: { priority: 'P0', product_line: ['产品线A'] }
+      }
+    });
+
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    // priority 被 options 覆盖为 P0
+    // productLine 被覆盖为产品线A
+    expect(body.productLine[0]).toBe('产品线A');
+  });
+
+  test('product_line 为 string 时应自动转为 array', async () => {
+    const content = [
+      '---',
+      'title: product_line string 兼容测试',
+      'product_line: 产品线A',
+      '---',
+      '',
+      '## 需求描述'
+    ].join('\n');
+
+    const response = await apiContext.post('/api/requirements/import', {
+      data: { content }
+    });
+
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(Array.isArray(body.productLine)).toBe(true);
+    expect(body.productLine[0]).toBe('产品线A');
+  });
+
+  test('content 为空时应返回 400', async () => {
+    const response = await apiContext.post('/api/requirements/import', {
+      data: { content: '' }
+    });
+    expect(response.status()).toBe(400);
+  });
+
+  test('content 缺失时应返回 400', async () => {
+    const response = await apiContext.post('/api/requirements/import', {
+      data: {}
+    });
+    expect(response.status()).toBe(400);
+  });
+
+  test('product_line 为空时应放入"未分类"文件夹', async () => {
+    const response = await apiContext.post('/api/requirements/import', {
+      data: {
+        content: '# 未分类导入测试\n\n## 需求描述'
+      }
+    });
+
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.productLine[0]).toBe('未分类');
+  });
+});
+
+test.describe('API: POST /api/requirements/:id/prototype/import', () => {
+  let apiContext;
+  const API_BASE = `http://localhost:${process.env.PORT || 3456}`;
+  let testReqId;
+
+  test.beforeAll(async () => {
+    apiContext = await pwRequest.newContext({ baseURL: API_BASE });
+
+    // 先创建一个测试需求，用于后续原型导入测试
+    const createResp = await apiContext.post('/api/requirements', {
+      data: {
+        title: '原型导入测试需求',
+        productLine: '产品线A',
+        priority: 'P2',
+        platform: ['web']
+      }
+    });
+    const createBody = await createResp.json();
+    testReqId = createBody.id;
+  });
+
+  test.afterAll(async () => {
+    await apiContext.dispose();
+  });
+
+  test('应成功导入 web 端原型 HTML', async () => {
+    const htmlContent = `<!DOCTYPE html>
+<html>
+<head><title>测试原型</title></head>
+<body><h1>原型内容</h1></body>
+</html>`;
+
+    const response = await apiContext.post(`/api/requirements/${testReqId}/prototype/import`, {
+      data: { content: htmlContent, platform: 'web' }
+    });
+
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.id).toBe(testReqId);
+    expect(body.platform).toBe('web');
+    expect(body.path).toMatch(/prototype-web\.html$/);
+  });
+
+  test('应自动注入 pm-craft-requirement-id meta 标签', async () => {
+    const htmlContent = `<!DOCTYPE html>
+<html>
+<head><title>Meta 注入测试</title></head>
+<body><p>原型内容</p></body>
+</html>`;
+
+    const response = await apiContext.post(`/api/requirements/${testReqId}/prototype/import`, {
+      data: { content: htmlContent, platform: 'web' }
+    });
+
+    expect(response.status()).toBe(200);
+
+    // 验证文件确实被写入（通过再次获取需求来确认 hasPrototype 状态）
+    const reqResp = await apiContext.get(`/api/requirements/${testReqId}`);
+    const reqBody = await reqResp.json();
+    expect(reqBody.hasPrototype.web).toBe(true);
+  });
+
+  test('应成功导入 mobile 端原型 HTML', async () => {
+    const htmlContent = `<!DOCTYPE html>
+<html>
+<head><title>移动端原型</title></head>
+<body style="width:375px"><h1>移动端内容</h1></body>
+</html>`;
+
+    const response = await apiContext.post(`/api/requirements/${testReqId}/prototype/import`, {
+      data: { content: htmlContent, platform: 'mobile' }
+    });
+
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.platform).toBe('mobile');
+    expect(body.path).toMatch(/prototype-mobile\.html$/);
+  });
+
+  test('platform 不合法时应默认使用 web', async () => {
+    const response = await apiContext.post(`/api/requirements/${testReqId}/prototype/import`, {
+      data: { content: '<html><body>fallback</body></html>', platform: 'desktop' }
+    });
+
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.platform).toBe('web');
+  });
+
+  test('需求 ID 不存在时应返回 404', async () => {
+    const response = await apiContext.post('/api/requirements/REQ-999999/prototype/import', {
+      data: { content: '<html></html>', platform: 'web' }
+    });
+    expect(response.status()).toBe(404);
+  });
+
+  test('content 为空时应返回 400', async () => {
+    const response = await apiContext.post(`/api/requirements/${testReqId}/prototype/import`, {
+      data: { content: '', platform: 'web' }
+    });
+    expect(response.status()).toBe(400);
+  });
+});

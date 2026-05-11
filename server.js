@@ -431,6 +431,221 @@ app.post('/api/requirements/:id/archive', (req, res) => {
   }
 });
 
+// 工具函数：校验并补全需求的 YAML front matter（满足 pm-craft-rules §6.2）
+function validateAndFixFrontMatter(fm, settings, today) {
+  const fixed = { ...fm };
+
+  // id：格式校验，不合法则清空，由调用方重新分配
+  if (!fixed.id || !/^REQ-\d{6}$/.test(String(fixed.id))) {
+    fixed.id = null; // 标记为需要重新分配
+  }
+
+  // title：非空字符串
+  if (!fixed.title || typeof fixed.title !== 'string' || !fixed.title.trim()) {
+    fixed.title = null; // 标记为需从正文 H1 提取
+  }
+
+  // status：必须在 statusList 中
+  if (!settings.statusList.includes(fixed.status)) {
+    fixed.status = settings.statusList[0] || '设计中';
+  }
+
+  // priority：必须在 priorityList 中
+  if (!settings.priorityList.includes(fixed.priority)) {
+    fixed.priority = 'P2';
+  }
+
+  // product_line：必须是数组
+  if (typeof fixed.product_line === 'string') {
+    fixed.product_line = fixed.product_line ? [fixed.product_line] : [];
+  } else if (!Array.isArray(fixed.product_line)) {
+    fixed.product_line = [];
+  }
+
+  // platform：必须是数组
+  if (typeof fixed.platform === 'string') {
+    fixed.platform = fixed.platform ? [fixed.platform] : ['web'];
+  } else if (!Array.isArray(fixed.platform)) {
+    fixed.platform = ['web'];
+  }
+
+  // tags：必须是数组
+  if (!Array.isArray(fixed.tags)) {
+    fixed.tags = [];
+  }
+
+  // sprint：必须是字符串
+  if (typeof fixed.sprint !== 'string') {
+    fixed.sprint = '';
+  }
+
+  // created / updated：格式 YYYY-MM-DD
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (!fixed.created || !dateRe.test(String(fixed.created))) {
+    fixed.created = today;
+  }
+  if (!fixed.updated || !dateRe.test(String(fixed.updated))) {
+    fixed.updated = today;
+  }
+
+  // 补全可选字段默认值
+  if (typeof fixed.developer !== 'string') fixed.developer = '';
+  if (typeof fixed.requester !== 'string') fixed.requester = '';
+  if (!fixed.due_date || !dateRe.test(String(fixed.due_date))) fixed.due_date = '';
+
+  return fixed;
+}
+
+// API：导入外部产物（requirement.md 内容）→ 解析、校验、补全元数据、写入文件系统
+// POST /api/requirements/import
+// Body: { content: string, options?: { product_line?, priority?, ... } }
+app.post('/api/requirements/import', (req, res) => {
+  try {
+    const { content, options = {} } = req.body;
+
+    if (!content || typeof content !== 'string') {
+      return res.status(400).json({ error: 'content 必须为非空字符串' });
+    }
+
+    const settings = getSettings();
+    const today = new Date().toISOString().split('T')[0];
+
+    // 1. 解析 YAML front matter
+    let frontMatter = {};
+    let body = content;
+
+    const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+    if (fmMatch) {
+      try {
+        frontMatter = yaml.load(fmMatch[1]) || {};
+      } catch (e) {
+        frontMatter = {};
+      }
+      body = fmMatch[2].trim();
+    }
+
+    // 2. 用 options 覆盖用户指定字段（options 优先级最高）
+    if (options && typeof options === 'object') {
+      Object.assign(frontMatter, options);
+    }
+
+    // 3. 若 title 为空，尝试从正文 H1 提取
+    if (!frontMatter.title || !String(frontMatter.title).trim()) {
+      const h1Match = body.match(/^#\s+(.+)$/m);
+      frontMatter.title = h1Match ? h1Match[1].trim() : '无标题';
+    }
+
+    // 4. 校验并补全元数据
+    const fixed = validateAndFixFrontMatter(frontMatter, settings, today);
+
+    // 5. 分配 ID（若缺失或格式不合法）
+    // 注意：import 接口必须在 POST /api/requirements 之前注册以避免路由冲突
+    // 检查 ID 是否已存在于文件系统
+    if (!fixed.id) {
+      fixed.id = getNextReqId();
+    } else {
+      // 检查 ID 是否已被占用
+      const existing = scanRequirements();
+      const idTaken = existing.some(r => r.id === fixed.id);
+      if (idTaken) {
+        fixed.id = getNextReqId();
+      }
+    }
+
+    // 6. product_line 为空时放到"未分类"
+    const primaryProductLine = (fixed.product_line && fixed.product_line.length > 0)
+      ? fixed.product_line[0]
+      : '未分类';
+
+    if (fixed.product_line.length === 0) {
+      fixed.product_line = ['未分类'];
+    }
+
+    // 7. 生成 slug，创建文件夹
+    const slug = generateSlug(fixed.title);
+    const folderName = `${fixed.id}-${slug}`;
+    const plDir = path.join(WORKSPACE, 'products', primaryProductLine);
+    const reqDir = path.join(plDir, folderName);
+
+    if (!fs.existsSync(plDir)) {
+      fs.mkdirSync(plDir, { recursive: true });
+    }
+
+    if (fs.existsSync(reqDir)) {
+      return res.status(409).json({ error: `需求文件夹已存在: ${folderName}` });
+    }
+
+    fs.mkdirSync(reqDir, { recursive: true });
+
+    // 8. 写入 requirement.md（确保 body 有基础结构）
+    const finalBody = body || '## 需求描述\n\n## 验收标准\n\n## 备注\n';
+    const fileContent = `---\n${yaml.dump(fixed)}---\n${finalBody}`;
+    const reqFile = path.join(reqDir, 'requirement.md');
+    fs.writeFileSync(reqFile, fileContent, 'utf-8');
+
+    res.json({
+      success: true,
+      id: fixed.id,
+      path: path.relative(WORKSPACE, reqFile).replace(/\\/g, '/'),
+      title: fixed.title,
+      productLine: fixed.product_line,
+      fixedFields: Object.keys(options)
+    });
+  } catch (err) {
+    console.error('导入需求失败:', err);
+    res.status(500).json({ error: '导入失败: ' + err.message });
+  }
+});
+
+// API：导入原型文件到已有需求
+// POST /api/requirements/:id/prototype/import
+// Body: { content: string, platform: "web" | "mobile" }
+app.post('/api/requirements/:id/prototype/import', (req, res) => {
+  try {
+    const { content, platform } = req.body;
+    const { id } = req.params;
+
+    if (!content || typeof content !== 'string') {
+      return res.status(400).json({ error: 'content 必须为非空字符串' });
+    }
+
+    const validPlatforms = ['web', 'mobile'];
+    const targetPlatform = validPlatforms.includes(platform) ? platform : 'web';
+
+    // 找到需求
+    const requirements = scanRequirements();
+    const requirement = requirements.find(r => r.id === id);
+
+    if (!requirement) {
+      return res.status(404).json({ error: `需求 ${id} 不存在` });
+    }
+
+    const reqDir = path.dirname(requirement.bodyPath);
+    const protoFileName = `prototype-${targetPlatform}.html`;
+    const protoPath = path.join(reqDir, protoFileName);
+
+    // 注入关联 meta 标签（若内容是 HTML 且尚未注入）
+    let finalContent = content;
+    const metaTag = `<meta name="pm-craft-requirement-id" content="${id}">`;
+    if (finalContent.includes('<head>') && !finalContent.includes('pm-craft-requirement-id')) {
+      finalContent = finalContent.replace('<head>', `<head>\n  ${metaTag}`);
+    }
+
+    fs.writeFileSync(protoPath, finalContent, 'utf-8');
+
+    res.json({
+      success: true,
+      id,
+      platform: targetPlatform,
+      path: path.relative(WORKSPACE, protoPath).replace(/\\/g, '/'),
+      overwritten: requirement.hasPrototype[targetPlatform]
+    });
+  } catch (err) {
+    console.error('导入原型失败:', err);
+    res.status(500).json({ error: '导入失败: ' + err.message });
+  }
+});
+
 // API：获取迭代列表
 app.get('/api/sprints', (req, res) => {
   const sprints = getSprints();
