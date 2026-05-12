@@ -949,10 +949,9 @@ test.describe('API: /api/drafts (需求池)', () => {
     const response = await apiContext.post('/api/drafts', {
       data: {
         title: '测试草稿需求',
-        type: 'idea',
         priority: 'high',
         source: 'user_feedback',
-        productLine: '测试产品线',
+        product_line: ['测试产品线'],
         tags: ['测试', '自动化']
       }
     });
@@ -960,7 +959,6 @@ test.describe('API: /api/drafts (需求池)', () => {
     const body = await response.json();
     expect(body.success).toBe(true);
     expect(body.id).toMatch(/^DRAFT-\d+$/);
-    expect(body.type).toBe('idea');
     createdDraftId = body.id;
   });
 

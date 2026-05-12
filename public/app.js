@@ -17,9 +17,9 @@ let previousPage = 'home'; // 'home' | 'list' | 'archive' | 'sprint' | 'drafts'
 let docIsDirty = false; // 文档是否被修改过
 
 // 需求池状态
-let draftTypeFilter = ''; // '' | 'idea' | 'prototype'
-let draftStatusFilter = ''; // '' | 'draft' | 'in_progress' | 'published' | 'archived'
 let currentDraftId = null;
+let editingDraft = null;
+let currentDraftStatusFilter = ''; // 当前状态筛选
 
 // Toast 提示 - Apple 风格
 function showToast(message, type = 'success') {
@@ -138,9 +138,7 @@ async function refreshData() {
     } else if (!document.getElementById('sprint-page').classList.contains('hidden')) {
       renderSprintView();
     } else if (!document.getElementById('drafts-page').classList.contains('hidden')) {
-      renderDraftsPage();
-    } else if (!document.getElementById('draft-detail-page').classList.contains('hidden')) {
-      renderDraftDetail();
+      renderDraftsList();
     }
   } catch (e) {
     console.error('刷新数据失败:', e);
@@ -2232,502 +2230,546 @@ init();
 // 显示需求池页面
 function showDraftsPage() {
   previousPage = 'drafts';
-  draftTypeFilter = '';
-  draftStatusFilter = '';
   hideAllPages();
   document.getElementById('drafts-page').classList.remove('hidden');
-  renderDraftsPage();
+  
+  // 更新产品线筛选下拉
+  const productLines = getAllProductLines();
+  document.getElementById('draft-product-line-filter').innerHTML = 
+    '<option value="">全部产品线</option>' +
+    productLines.map(pl => `<option value="${pl}">${pl}</option>`).join('');
+  
+  // 初始化状态筛选标签
+  updateStatusFilterTabs();
+  renderDraftsList();
 }
 
-// 渲染需求池页面
-function renderDraftsPage() {
+// 设置需求池状态筛选
+function setDraftStatusFilter(status) {
+  currentDraftStatusFilter = status;
+  updateStatusFilterTabs();
+  renderDraftsList();
+}
+
+// 更新状态筛选标签样式
+function updateStatusFilterTabs() {
+  document.querySelectorAll('.status-tab').forEach(btn => {
+    if (btn.dataset.status === currentDraftStatusFilter) {
+      btn.className = 'status-tab px-3 py-1.5 rounded-lg text-sm font-medium bg-ink-800 text-white';
+    } else {
+      btn.className = 'status-tab px-3 py-1.5 rounded-lg text-sm font-medium text-ink-600 hover:bg-ink-100';
+    }
+  });
+}
+
+// 渲染需求池列表
+function renderDraftsList() {
   const container = document.getElementById('drafts-list');
+  const productLineFilter = document.getElementById('draft-product-line-filter').value;
+  const searchQuery = document.getElementById('draft-search').value.toLowerCase();
   
-  // 筛选草稿
-  let drafts = currentData.drafts;
-  if (draftTypeFilter) {
-    drafts = drafts.filter(d => d.type === draftTypeFilter);
+  // 筛选草稿（排除已搁置，已搁置在单独区域显示）
+  let drafts = currentData.drafts.filter(d => d.status !== 'archived');
+  
+  if (currentDraftStatusFilter) {
+    drafts = drafts.filter(d => d.status === currentDraftStatusFilter);
   }
-  if (draftStatusFilter) {
-    drafts = drafts.filter(d => d.status === draftStatusFilter);
+  if (productLineFilter) {
+    drafts = drafts.filter(d => 
+      Array.isArray(d.product_line) && d.product_line.includes(productLineFilter)
+    );
+  }
+  if (searchQuery) {
+    drafts = drafts.filter(d => 
+      (d.title || '').toLowerCase().includes(searchQuery) ||
+      (d.description || '').toLowerCase().includes(searchQuery)
+    );
   }
   
-  // 渲染 Tab
-  const allCount = currentData.drafts.length;
-  const ideaCount = currentData.drafts.filter(d => d.type === 'idea').length;
-  const protoCount = currentData.drafts.filter(d => d.type === 'prototype').length;
-  const activeCount = currentData.drafts.filter(d => d.status !== 'published' && d.status !== 'archived').length;
+  // 更新已搁置区域
+  renderArchivedDrafts();
   
-  document.getElementById('drafts-type-tabs').innerHTML = [
-    { label: `全部 (${allCount})`, filter: '', count: allCount },
-    { label: `需求草稿 (${ideaCount})`, filter: 'idea', count: ideaCount },
-    { label: `原型草稿 (${protoCount})`, filter: 'prototype', count: protoCount }
-  ].map(t => `
-    <button onclick="filterDraftsByType('${t.filter}')" 
-            class="px-4 py-2 text-sm border border-ink-200 rounded-full hover:border-ink-400 hover:text-ink-600 transition-colors whitespace-nowrap ${draftTypeFilter === t.filter ? 'bg-ink-800 text-white border-ink-800' : ''}">
-      ${t.label}
-    </button>
-  `).join('');
-  
-  // 状态筛选
-  document.getElementById('drafts-status-tabs').innerHTML = `
-    <button onclick="filterDraftsByStatus('')" class="px-3 py-1.5 text-xs border border-ink-200 rounded-lg hover:border-ink-400 transition-colors ${draftStatusFilter === '' ? 'bg-ink-100' : ''}">
-      全部状态
-    </button>
-    <button onclick="filterDraftsByStatus('draft')" class="px-3 py-1.5 text-xs border border-ink-200 rounded-lg hover:border-ink-400 transition-colors ${draftStatusFilter === 'draft' ? 'bg-ink-100' : ''}">
-      草稿
-    </button>
-    <button onclick="filterDraftsByStatus('in_progress')" class="px-3 py-1.5 text-xs border border-ink-200 rounded-lg hover:border-ink-400 transition-colors ${draftStatusFilter === 'in_progress' ? 'bg-ink-100' : ''}">
-      进行中
-    </button>
-    <button onclick="filterDraftsByStatus('published')" class="px-3 py-1.5 text-xs border border-ink-200 rounded-lg hover:border-ink-400 transition-colors ${draftStatusFilter === 'published' ? 'bg-ink-100' : ''}">
-      已发布
-    </button>
-    <button onclick="filterDraftsByStatus('archived')" class="px-3 py-1.5 text-xs border border-ink-200 rounded-lg hover:border-ink-400 transition-colors ${draftStatusFilter === 'archived' ? 'bg-ink-100' : ''}">
-      已搁置
-    </button>
-  `;
-  
-  // 渲染列表
   if (drafts.length === 0) {
     container.innerHTML = `
-      <div class="text-center text-ink-500 text-sm py-20">
-        <div class="mb-4">
-          <svg width="48" height="48" viewBox="0 0 48 48" fill="none" class="mx-auto text-ink-300">
-            <rect x="8" y="12" width="32" height="28" rx="2" stroke="currentColor" stroke-width="2"/>
-            <path d="M8 20h32" stroke="currentColor" stroke-width="2"/>
-            <path d="M16 8h16v4H16z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-          </svg>
-        </div>
-        <p>暂无草稿</p>
-        <p class="text-xs mt-1">点击上方「新建草稿」添加</p>
-      </div>
+      <tr>
+        <td colspan="7" class="px-4 py-12 text-center text-ink-400">
+          <div class="flex flex-col items-center">
+            <svg width="40" height="40" viewBox="0 0 40 40" fill="none" class="mb-3 text-ink-300">
+              <rect x="6" y="10" width="28" height="24" rx="2" stroke="currentColor" stroke-width="2"/>
+              <path d="M6 18h28" stroke="currentColor" stroke-width="2"/>
+              <path d="M13 6h14v4H13z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+            </svg>
+            <p>暂无草稿</p>
+            <p class="text-xs mt-1">点击上方「新建草稿」添加</p>
+          </div>
+        </td>
+      </tr>
     `;
     return;
   }
   
   container.innerHTML = drafts.map(draft => {
-    const typeIcon = draft.type === 'idea' 
-      ? '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2L10 6H14L11 9L12 14L8 11L4 14L5 9L2 6H6L8 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>'
-      : '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M2 6h12" stroke="currentColor" stroke-width="1.5"/></svg>';
+    const statusLabels = { draft: '草稿', in_progress: '进行中', published: '已发布', archived: '已搁置' };
+    const priorityLabels = { low: '低', medium: '中', high: '高' };
     
-    const typeLabel = draft.type === 'idea' ? '需求' : '原型';
-    const typeClass = draft.type === 'idea' ? 'bg-ink-100 text-ink-600' : 'bg-ink-50 text-ink-500';
+    const statusOptions = ['draft', 'in_progress', 'archived']
+      .map(s => `<option value="${s}" ${draft.status === s ? 'selected' : ''}>${statusLabels[s]}</option>`)
+      .join('');
     
-    const statusLabel = { draft: '草稿', in_progress: '进行中', published: '已发布', archived: '已搁置' }[draft.status] || draft.status;
-    const statusClass = { draft: 'bg-ink-50 text-ink-500', in_progress: 'bg-blue-50 text-blue-600', published: 'bg-green-50 text-green-600', archived: 'bg-ink-100 text-ink-400' }[draft.status] || 'bg-ink-50 text-ink-500';
-    
-    const priorityLabel = { low: '低', medium: '中', high: '高' }[draft.priority] || draft.priority || '';
-    const priorityBadge = priorityLabel ? `<span class="text-xs text-ink-500">${priorityLabel}优先级</span>` : '';
-    
-    const sourceLabel = { user_feedback: '用户反馈', competitor: '竞品', tech: '技术优化', self: '自主' }[draft.source] || draft.source || '';
-    const sourceBadge = sourceLabel ? `<span class="px-2 py-0.5 bg-ink-50 rounded text-xs text-ink-500">${sourceLabel}</span>` : '';
-    
-    const publishedId = draft.published_id ? `<span class="font-mono text-xs text-green-600 ml-2">→ ${draft.published_id}</span>` : '';
+    const productLines = getAllProductLines();
+    const productLineCheckboxes = productLines.map(pl => {
+      const checked = Array.isArray(draft.product_line) && draft.product_line.includes(pl) ? 'checked' : '';
+      return `<label class="inline-flex items-center gap-1"><input type="checkbox" class="draft-pl-cb w-4 h-4" value="${pl}" ${checked}>${pl}</label>`;
+    }).join('');
     
     return `
-      <div class="bg-white rounded-2xl border border-ink-100 p-5 hover:border-ink-200 hover:shadow-sm transition-all cursor-pointer"
-           onclick="showDraftDetail('${draft.id}')">
-        <div class="flex items-start justify-between mb-3">
+      <tr class="req-row group">
+        <td class="px-4 py-3">
+          <span class="font-mono text-xs text-ink-500">${draft.id}</span>
+        </td>
+        <td class="px-4 py-3">
           <div class="flex items-center gap-2">
-            <span class="font-mono text-xs text-ink-500">${draft.id}</span>
-            ${publishedId}
+            <span class="font-medium text-ink-800 truncate max-w-xs">${draft.title || '无标题'}</span>
+            ${draft.published_ids && draft.published_ids.length > 0 
+              ? `<span class="text-xs text-green-600">→ ${draft.published_ids.join(', ')}</span>` 
+              : ''}
           </div>
-          <div class="flex items-center gap-2">
-            <span class="px-2 py-0.5 ${typeClass} rounded text-xs">${typeIcon} ${typeLabel}</span>
-            <span class="px-2 py-0.5 ${statusClass} rounded text-xs">${statusLabel}</span>
+        </td>
+        <td class="px-4 py-3">
+          <select onchange="updateDraftStatus('${draft.id}', this.value)" class="text-xs border border-ink-200 rounded px-2 py-1 bg-white focus:outline-none focus:border-ink-400">
+            ${statusOptions}
+          </select>
+        </td>
+        <td class="px-4 py-3">
+          <select onchange="updateDraftField('${draft.id}', 'priority', this.value)" class="text-xs border border-ink-200 rounded px-2 py-1 bg-white focus:outline-none focus:border-ink-400">
+            <option value="low" ${draft.priority === 'low' ? 'selected' : ''}>低</option>
+            <option value="medium" ${draft.priority === 'medium' ? 'selected' : ''}>中</option>
+            <option value="high" ${draft.priority === 'high' ? 'selected' : ''}>高</option>
+          </select>
+        </td>
+        <td class="px-4 py-3">
+          <div class="flex flex-wrap gap-1 text-xs">
+            ${Array.isArray(draft.product_line) && draft.product_line.length > 0 
+              ? draft.product_line.map(pl => `<span class="px-1.5 py-0.5 bg-ink-100 rounded text-ink-600">${pl}</span>`).join('')
+              : '<span class="text-ink-400">-</span>'}
           </div>
-        </div>
-        <h3 class="text-base font-medium text-ink-800 mb-2">${draft.title || '无标题'}</h3>
-        <div class="flex items-center gap-3 text-xs text-ink-500">
-          ${priorityBadge}
-          ${sourceBadge}
-          ${draft.updated_at ? `<span>${formatDate(draft.updated_at)}</span>` : ''}
-        </div>
-      </div>
+        </td>
+        <td class="px-4 py-3">
+          <span class="text-xs text-ink-500">${draft.source || '-'}</span>
+        </td>
+        <td class="px-4 py-3">
+          <div class="flex items-center gap-1">
+            <button onclick="showDraftModal('${draft.id}')" class="p-1.5 rounded hover:bg-ink-100 text-ink-400 hover:text-ink-600" title="编辑">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M10.5 1.5l2 2-8 8H2.5v-2l8-8z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            </button>
+            ${draft.status !== 'published' 
+              ? `<button onclick="openPublishModal('${draft.id}')" class="p-1.5 rounded hover:bg-sage-100 text-ink-400 hover:text-sage-600" title="发布">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v8M4 6l3 3 3-3M2 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>`
+              : ''}
+            <button onclick="previewDraft('${draft.id}')" class="p-1.5 rounded hover:bg-blue-50 text-ink-400 hover:text-blue-600" title="预览">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 7s2.5-5 6-5 6 5 6 5-2.5 5-6 5-6-5-6-5z" stroke="currentColor" stroke-width="1.5"/><circle cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.5"/></svg>
+            </button>
+            <button onclick="deleteDraft('${draft.id}')" class="p-1.5 rounded hover:bg-rust-50 text-ink-400 hover:text-rust-500" title="删除">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 4h8M5 4V3h4v1M5 6v5M9 6v5M4 4l1 8h4l1-8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </td>
+      </tr>
     `;
   }).join('');
 }
 
-// 按类型筛选草稿
-function filterDraftsByType(type) {
-  draftTypeFilter = type;
-  renderDraftsPage();
-}
-
-// 按状态筛选草稿
-function filterDraftsByStatus(status) {
-  draftStatusFilter = status;
-  renderDraftsPage();
-}
-
-// 显示创建草稿弹窗
-function showCreateDraftModal() {
-  const modal = document.getElementById('create-draft-modal');
-  modal.classList.remove('hidden');
+// 渲染已搁置列表
+function renderArchivedDrafts() {
+  const container = document.getElementById('archived-drafts-list');
+  const countEl = document.getElementById('archived-drafts-count');
   
-  // 收集所有唯一产品线
+  const archivedDrafts = currentData.drafts.filter(d => d.status === 'archived');
+  countEl.textContent = archivedDrafts.length;
+  
+  if (archivedDrafts.length === 0) {
+    container.innerHTML = `
+      <tr>
+        <td colspan="6" class="px-4 py-6 text-center text-ink-400 text-sm">暂无已搁置需求</td>
+      </tr>
+    `;
+    return;
+  }
+  
+  container.innerHTML = archivedDrafts.map(draft => `
+    <tr class="group hover:bg-ink-50/50">
+      <td class="px-4 py-2">
+        <span class="font-mono text-xs text-ink-500">${draft.id}</span>
+      </td>
+      <td class="px-4 py-2">
+        <span class="text-sm text-ink-700 truncate max-w-xs">${draft.title || '无标题'}</span>
+      </td>
+      <td class="px-4 py-2">
+        <select onchange="updateDraftStatus('${draft.id}', this.value)" class="text-xs border border-ink-200 rounded px-2 py-1 bg-white focus:outline-none focus:border-ink-400">
+          <option value="draft" ${draft.status === 'draft' ? 'selected' : ''}>草稿</option>
+          <option value="in_progress" ${draft.status === 'in_progress' ? 'selected' : ''}>进行中</option>
+          <option value="archived" ${draft.status === 'archived' ? 'selected' : ''} selected>已搁置</option>
+        </select>
+      </td>
+      <td class="px-4 py-2">
+        <div class="flex flex-wrap gap-1 text-xs">
+          ${Array.isArray(draft.product_line) && draft.product_line.length > 0 
+            ? draft.product_line.map(pl => `<span class="px-1.5 py-0.5 bg-ink-100 rounded text-ink-600">${pl}</span>`).join('')
+            : '<span class="text-ink-400">-</span>'}
+        </div>
+      </td>
+      <td class="px-4 py-2">
+        <span class="text-xs text-ink-500">${draft.source || '-'}</span>
+      </td>
+      <td class="px-4 py-2">
+        <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onclick="showDraftModal('${draft.id}')" class="p-1 rounded hover:bg-ink-100 text-ink-400 hover:text-ink-600" title="编辑">
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M10.5 1.5l2 2-8 8H2.5v-2l8-8z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          </button>
+          <button onclick="deleteDraft('${draft.id}')" class="p-1 rounded hover:bg-rust-50 text-ink-400 hover:text-rust-500" title="删除">
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M3 4h8M5 4V3h4v1M5 6v5M9 6v5M4 4l1 8h4l1-8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+// 获取所有产品线
+function getAllProductLines() {
   const settingsProductLines = settings.productLines || [];
   const reqProductLines = currentData.requirements.flatMap(r =>
     Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : [])
   );
-  const productLines = [...new Set([...settingsProductLines, ...reqProductLines])];
-  
-  // 渲染产品线选项
-  document.getElementById('draft-product-line-select').innerHTML = 
-    '<option value="">未指定</option>' +
-    productLines.map(pl => `<option value="${pl}">${pl}</option>`).join('');
-  
-  // 清空输入
-  document.getElementById('draft-title').value = '';
-  document.getElementById('draft-priority').value = 'medium';
-  document.getElementById('draft-source').value = '';
-  document.getElementById('draft-type-idea').checked = true;
-  
-  setTimeout(() => document.getElementById('draft-title').focus(), 100);
+  return [...new Set([...settingsProductLines, ...reqProductLines])];
 }
 
-function closeCreateDraftModal() {
-  document.getElementById('create-draft-modal').classList.add('hidden');
-}
-
-// 创建草稿
-async function createDraft() {
-  const title = document.getElementById('draft-title').value.trim();
-  const priority = document.getElementById('draft-priority').value;
-  const source = document.getElementById('draft-source').value;
-  const productLine = document.getElementById('draft-product-line-select').value;
-  const type = document.getElementById('draft-type-idea').checked ? 'idea' : 'prototype';
+// 预览草稿/原型
+function previewDraft(draftId) {
+  const draft = currentData.drafts.find(d => d.id === draftId);
+  if (!draft) return;
   
-  if (!title) {
-    alert('请输入标题');
+  // 检查草稿是否有自己的原型文件（新格式）
+  if (draft.prototypeFiles && draft.prototypeFiles.length > 0) {
+    // 新格式：打开草稿文件夹中的原型文件
+    const protoFile = draft.prototypeFiles[0];
+    const protoPath = draft.folderPath ? draft.folderPath.split(/[/\\]/).pop() + '/' + protoFile : protoFile;
+    window.open(`/drafts/${encodeURIComponent(protoPath)}`, '_blank');
     return;
   }
   
-  try {
-    const res = await fetch('/api/drafts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, type, priority, source, product_line: productLine })
-    });
-    
-    const data = await res.json();
-    
-    if (res.ok) {
-      closeCreateDraftModal();
-      await refreshData();
-      showToast(`草稿 ${data.id} 已创建`);
-      showDraftDetail(data.id);
-    } else {
-      alert(data.error || '创建失败');
+  // 旧格式或无原型：查找已发布需求的原型
+  const prototypeFiles = [];
+  
+  for (const req of currentData.requirements) {
+    if (req.title === draft.title || (draft.published_ids && draft.published_ids.includes(req.id))) {
+      if (req.bodyPath) {
+        const filename = req.bodyPath.split(/[/\\]/).pop();
+        if (filename.endsWith('.html')) {
+          prototypeFiles.push({ filename, bodyPath: req.bodyPath, title: req.title });
+        }
+      }
     }
-  } catch (e) {
-    console.error('创建草稿失败:', e);
-    alert('创建失败，请检查网络');
+  }
+  
+  if (prototypeFiles.length > 0) {
+    const proto = prototypeFiles[0];
+    const protoPath = proto.bodyPath.replace(/\\/g, '/').split('/').pop();
+    window.open(`/products/${protoPath}`, '_blank');
+  } else {
+    showDraftPreviewModal(draft);
   }
 }
 
-// 显示草稿详情页
-function showDraftDetail(draftId) {
-  currentDraftId = draftId;
-  previousPage = 'drafts';
-  hideAllPages();
-  document.getElementById('draft-detail-page').classList.remove('hidden');
-  renderDraftDetail();
-}
-
-// 渲染草稿详情页
-function renderDraftDetail() {
-  const draft = currentData.drafts.find(d => d.id === currentDraftId);
-  if (!draft) {
-    document.getElementById('draft-detail-content').innerHTML = '<div class="text-center text-ink-500 py-20">草稿不存在</div>';
-    return;
+// 显示草稿预览弹窗
+function showDraftPreviewModal(draft) {
+  let modal = document.getElementById('draft-preview-modal');
+  if (!modal) {
+    const html = `
+      <div id="draft-preview-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden z-50 flex items-center justify-center">
+        <div class="bg-white rounded-2xl shadow-2xl w-[800px] h-[600px] max-h-[85vh] flex flex-col overflow-hidden animate-fade-in">
+          <div class="px-6 py-4 border-b border-ink-100 flex justify-between items-center">
+            <h3 id="draft-preview-title" class="font-display text-lg font-bold text-ink-900">草稿预览</h3>
+            <button onclick="closeDraftPreviewModal()" class="w-8 h-8 rounded-lg hover:bg-ink-100 flex items-center justify-center transition-colors">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+          <div class="flex-1 overflow-auto p-6">
+            <div id="draft-preview-content" class="prose prose-sm max-w-none"></div>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', html);
+    modal = document.getElementById('draft-preview-modal');
   }
   
-  const isIdea = draft.type === 'idea';
-  const statusOptions = [
-    { value: 'draft', label: '草稿' },
-    { value: 'in_progress', label: '进行中' },
-    { value: 'published', label: '已发布' },
-    { value: 'archived', label: '已搁置' }
-  ];
+  document.getElementById('draft-preview-title').textContent = draft.title || '无标题';
+  const content = document.getElementById('draft-preview-content');
   
-  document.getElementById('draft-detail-header').innerHTML = `
-    <span class="font-mono text-xs text-ink-500">${draft.id}</span>
-    <span class="mx-2 text-ink-200">·</span>
-    <span class="text-sm">${draft.title || '无标题'}</span>
-    <span class="mx-2 text-ink-200">·</span>
-    <span class="px-2 py-0.5 ${isIdea ? 'bg-ink-100 text-ink-600' : 'bg-ink-50 text-ink-500'} rounded text-xs">
-      ${isIdea ? '需求草稿' : '原型草稿'}
-    </span>
-  `;
+  let html = '';
   
-  document.getElementById('draft-detail-content').innerHTML = `
-    <div class="space-y-6">
-      <!-- 基本信息 -->
-      <div class="bg-white rounded-2xl border border-ink-100 p-6">
-        <h3 class="text-sm font-semibold text-ink-700 mb-4">基本信息</h3>
-        <div class="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <span class="text-ink-500">标题</span>
-            <input type="text" id="draft-edit-title" value="${draft.title || ''}" 
-                   class="w-full mt-1 px-3 py-2 border border-ink-200 rounded-lg text-ink-800 focus:outline-none focus:border-ink-400">
-          </div>
-          <div>
-            <span class="text-ink-500">状态</span>
-            <select id="draft-edit-status" class="w-full mt-1 px-3 py-2 border border-ink-200 rounded-lg bg-white text-ink-800 focus:outline-none focus:border-ink-400">
-              ${statusOptions.map(s => `<option value="${s.value}" ${draft.status === s.value ? 'selected' : ''}>${s.label}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <span class="text-ink-500">优先级</span>
-            <select id="draft-edit-priority" class="w-full mt-1 px-3 py-2 border border-ink-200 rounded-lg bg-white text-ink-800 focus:outline-none focus:border-ink-400">
-              <option value="low" ${draft.priority === 'low' ? 'selected' : ''}>低</option>
-              <option value="medium" ${(!draft.priority || draft.priority === 'medium') ? 'selected' : ''}>中</option>
-              <option value="high" ${draft.priority === 'high' ? 'selected' : ''}>高</option>
-            </select>
-          </div>
-          <div>
-            <span class="text-ink-500">来源</span>
-            <select id="draft-edit-source" class="w-full mt-1 px-3 py-2 border border-ink-200 rounded-lg bg-white text-ink-800 focus:outline-none focus:border-ink-400">
-              <option value="">未指定</option>
-              <option value="user_feedback" ${draft.source === 'user_feedback' ? 'selected' : ''}>用户反馈</option>
-              <option value="competitor" ${draft.source === 'competitor' ? 'selected' : ''}>竞品分析</option>
-              <option value="tech" ${draft.source === 'tech' ? 'selected' : ''}>技术优化</option>
-              <option value="self" ${draft.source === 'self' ? 'selected' : ''}>自主提出</option>
-            </select>
-          </div>
-          <div>
-            <span class="text-ink-500">关联产品线</span>
-            <input type="text" id="draft-edit-product-line" value="${draft.product_line || ''}" 
-                   class="w-full mt-1 px-3 py-2 border border-ink-200 rounded-lg text-ink-800 focus:outline-none focus:border-ink-400"
-                   placeholder="未指定">
-          </div>
-          <div>
-            <span class="text-ink-500">发布时间</span>
-            <input type="date" id="draft-edit-due-date" 
-                   class="w-full mt-1 px-3 py-2 border border-ink-200 rounded-lg text-ink-800 focus:outline-none focus:border-ink-400">
-          </div>
-        </div>
-        <div class="mt-4 flex justify-end">
-          <button onclick="updateDraft()" class="px-4 py-2 bg-ink-800 text-white text-sm font-medium rounded-lg hover:bg-ink-700 transition-colors">
-            保存修改
-          </button>
-        </div>
-      </div>
-      
-      ${isIdea ? `
-      <!-- 文档内容 -->
-      <div class="bg-white rounded-2xl border border-ink-100 p-6">
-        <h3 class="text-sm font-semibold text-ink-700 mb-4">文档内容</h3>
-        <textarea id="draft-edit-body" rows="12"
-                  class="w-full px-4 py-3 border border-ink-200 rounded-xl text-sm font-mono text-ink-800 focus:outline-none focus:border-ink-400 resize-none"
-                  placeholder="输入需求文档内容...">${draft.body || ''}</textarea>
-        <div class="mt-4 flex justify-end">
-          <button onclick="updateDraftBody()" class="px-4 py-2 bg-ink-800 text-white text-sm font-medium rounded-lg hover:bg-ink-700 transition-colors">
-            保存文档
-          </button>
-        </div>
-      </div>
-      ` : `
-      <!-- 原型预览 -->
-      <div class="bg-white rounded-2xl border border-ink-100 p-6">
-        <h3 class="text-sm font-semibold text-ink-700 mb-4">原型预览</h3>
-        <div class="border border-ink-100 rounded-xl overflow-hidden">
-          <iframe src="/drafts/${encodeURIComponent(draft.bodyPath?.split(/[/\\]/).pop() || '')}" 
-                  class="w-full h-[500px] border-0"></iframe>
-        </div>
-      </div>
-      `}
-      
-      <!-- 发布选项 -->
-      ${draft.status !== 'published' ? `
-      <div class="bg-white rounded-2xl border border-ink-100 p-6">
-        <h3 class="text-sm font-semibold text-ink-700 mb-4">发布为正式需求</h3>
-        <div class="grid grid-cols-2 gap-4 mb-4">
-          <div>
-            <span class="text-sm text-ink-600">目标产品线</span>
-            <select id="publish-product-line" class="w-full mt-1 px-3 py-2 border border-ink-200 rounded-lg bg-white text-ink-800 focus:outline-none focus:border-ink-400">
-              ${(settings.productLines || []).map(pl => `<option value="${pl}" ${pl === draft.product_line ? 'selected' : ''}>${pl}</option>`).join('')}
-              ${draft.product_line && !settings.productLines?.includes(draft.product_line) ? `<option value="${draft.product_line}" selected>${draft.product_line}</option>` : ''}
-            </select>
-          </div>
-          <div>
-            <span class="text-sm text-ink-600">优先级</span>
-            <select id="publish-priority" class="w-full mt-1 px-3 py-2 border border-ink-200 rounded-lg bg-white text-ink-800 focus:outline-none focus:border-ink-400">
-              <option value="P0" ${(!draft.priority || draft.priority === 'high') ? 'selected' : ''}>P0 - 最高</option>
-              <option value="P1" ${draft.priority === 'medium' ? 'selected' : ''}>P1 - 高</option>
-              <option value="P2" ${draft.priority === 'low' ? 'selected' : ''}>P2 - 中</option>
-            </select>
-          </div>
-        </div>
-        <button onclick="publishDraft()" class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-500 transition-colors">
-          发布需求
-        </button>
-      </div>
-      ` : ''}
-      
-      <!-- 操作 -->
-      <div class="flex justify-between items-center">
-        <div class="text-xs text-ink-500">
-          创建于: ${draft.created_at ? new Date(draft.created_at).toLocaleString('zh-CN') : '-'}
-          ${draft.published_id ? `<br>已发布为: <span class="text-green-600">${draft.published_id}</span>` : ''}
-        </div>
-        <div class="flex gap-3">
-          ${draft.status !== 'published' ? `
-          <button onclick="archiveDraft()" class="px-4 py-2 text-sm text-ink-600 border border-ink-200 rounded-lg hover:bg-ink-50 transition-colors">
-            搁置
-          </button>
-          ` : ''}
-          <button onclick="confirmDeleteDraft()" class="px-4 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors">
-            删除
-          </button>
-        </div>
-      </div>
-    </div>
-  `;
+  // 元数据
+  if (draft.description) {
+    html += `<div class="mb-4"><h4 class="text-sm font-semibold text-ink-700 mb-2">描述</h4><p class="text-ink-600">${draft.description}</p></div>`;
+  }
+  if (draft.source) {
+    html += `<div class="mb-4"><h4 class="text-sm font-semibold text-ink-700 mb-2">来源</h4><p class="text-ink-600">${draft.source}</p></div>`;
+  }
+  if (draft.product_line && draft.product_line.length > 0) {
+    html += `<div class="mb-4"><h4 class="text-sm font-semibold text-ink-700 mb-2">产品线</h4><div class="flex gap-2">${draft.product_line.map(pl => `<span class="px-2 py-1 bg-ink-100 rounded text-sm">${pl}</span>`).join('')}</div></div>`;
+  }
+  if (draft.tags && draft.tags.length > 0) {
+    html += `<div class="mb-4"><h4 class="text-sm font-semibold text-ink-700 mb-2">标签</h4><div class="flex gap-2">${draft.tags.map(tag => `<span class="px-2 py-1 bg-clay-100 text-clay-700 rounded text-sm">${tag}</span>`).join('')}</div></div>`;
+  }
+  
+  // 原型文件
+  if (draft.prototypeFiles && draft.prototypeFiles.length > 0) {
+    html += `<div class="mb-4"><h4 class="text-sm font-semibold text-ink-700 mb-2">原型文件</h4><div class="space-y-2">`;
+    for (const proto of draft.prototypeFiles) {
+      const protoPath = draft.folderPath ? draft.folderPath.split(/[/\\]/).pop() + '/' + proto : proto;
+      html += `<a href="/drafts/${encodeURIComponent(protoPath)}" target="_blank" class="flex items-center gap-2 px-3 py-2 bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-700 text-sm transition-colors">
+        <svg width="16" height="16" fill="none" viewBox="0 0 16 16"><path d="M2 4h12v8H2z" stroke="currentColor" stroke-width="1.5"/><path d="M5 4V2h4v2" stroke="currentColor" stroke-width="1.5"/></svg>
+        ${proto}
+      </a>`;
+    }
+    html += `</div></div>`;
+  } else {
+    html += `<div class="mt-4 p-4 bg-ink-50 rounded-lg text-sm text-ink-500">暂无原型文件</div>`;
+  }
+  
+  content.innerHTML = html;
+  modal.classList.remove('hidden');
 }
 
-// 更新草稿基本信息
-async function updateDraft() {
-  const title = document.getElementById('draft-edit-title').value.trim();
-  const status = document.getElementById('draft-edit-status').value;
-  const priority = document.getElementById('draft-edit-priority').value;
-  const source = document.getElementById('draft-edit-source').value;
-  const product_line = document.getElementById('draft-edit-product-line').value;
+function closeDraftPreviewModal() {
+  document.getElementById('draft-preview-modal').classList.add('hidden');
+}
+
+// 显示草稿弹窗（新建/编辑）
+function showDraftModal(draftId = null) {
+  const modal = document.getElementById('draft-modal');
+  const titleEl = document.getElementById('draft-modal-title');
+  
+  editingDraft = draftId ? currentData.drafts.find(d => d.id === draftId) : null;
+  
+  if (editingDraft) {
+    titleEl.textContent = '编辑草稿';
+    document.getElementById('draft-id').value = editingDraft.id;
+    document.getElementById('draft-title-input').value = editingDraft.title || '';
+    document.getElementById('draft-description-input').value = editingDraft.description || '';
+    document.getElementById('draft-priority-input').value = editingDraft.priority || 'medium';
+    document.getElementById('draft-source-input').value = editingDraft.source || '';
+    document.getElementById('draft-tags-input').value = (editingDraft.tags || []).join(', ');
+  } else {
+    titleEl.textContent = '新建草稿';
+    document.getElementById('draft-id').value = '';
+    document.getElementById('draft-title-input').value = '';
+    document.getElementById('draft-description-input').value = '';
+    document.getElementById('draft-priority-input').value = 'medium';
+    document.getElementById('draft-source-input').value = '';
+    document.getElementById('draft-tags-input').value = '';
+  }
+  
+  // 渲染产品线复选框
+  const productLines = getAllProductLines();
+  const container = document.getElementById('draft-product-lines');
+  container.innerHTML = productLines.map(pl => {
+    const checked = editingDraft && Array.isArray(editingDraft.product_line) && editingDraft.product_line.includes(pl) ? 'checked' : '';
+    return `<label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-ink-50 rounded-lg cursor-pointer hover:bg-ink-100 text-sm">
+      <input type="checkbox" class="draft-pl-cb w-4 h-4" value="${pl}" ${checked}>${pl}
+    </label>`;
+  }).join('') || '<span class="text-sm text-ink-400">暂无产品线</span>';
+  
+  modal.classList.remove('hidden');
+  setTimeout(() => document.getElementById('draft-title-input').focus(), 100);
+}
+
+function closeDraftModal() {
+  document.getElementById('draft-modal').classList.add('hidden');
+  editingDraft = null;
+}
+
+// 保存草稿（新建/更新）
+async function saveDraft() {
+  const id = document.getElementById('draft-id').value;
+  const title = document.getElementById('draft-title-input').value.trim();
+  const description = document.getElementById('draft-description-input').value.trim();
+  const priority = document.getElementById('draft-priority-input').value;
+  const source = document.getElementById('draft-source-input').value.trim();
+  const tags = document.getElementById('draft-tags-input').value.split(',').map(t => t.trim()).filter(Boolean);
+  const product_line = Array.from(document.querySelectorAll('#draft-product-lines .draft-pl-cb:checked')).map(cb => cb.value);
   
   if (!title) {
-    alert('标题不能为空');
+    showToast('请输入标题', 'error');
     return;
   }
   
   try {
-    const res = await fetch(`/api/drafts/${currentDraftId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, status, priority, source, product_line })
-    });
-    
-    if (res.ok) {
+    if (id) {
+      // 更新
+      const res = await fetch(`/api/drafts/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, description, priority, source, tags, product_line })
+      });
+      if (!res.ok) throw new Error();
       showToast('草稿已更新');
-      await refreshData();
     } else {
-      const data = await res.json();
-      alert(data.error || '更新失败');
+      // 新建
+      const res = await fetch('/api/drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, description, priority, source, tags, product_line })
+      });
+      if (!res.ok) throw new Error();
+      showToast('草稿已创建');
     }
+    
+    closeDraftModal();
+    await refreshData();
+    renderDraftsList();
   } catch (e) {
-    console.error('更新草稿失败:', e);
-    alert('更新失败');
+    showToast('保存失败', 'error');
   }
 }
 
-// 更新草稿文档内容
-async function updateDraftBody() {
-  const body = document.getElementById('draft-edit-body').value;
-  
+// 行内更新草稿字段
+async function updateDraftField(id, field, value) {
   try {
-    const res = await fetch(`/api/drafts/${currentDraftId}`, {
+    await fetch(`/api/drafts/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body })
+      body: JSON.stringify({ [field]: value })
     });
-    
-    if (res.ok) {
-      showToast('文档已保存');
-      await refreshData();
-    } else {
-      const data = await res.json();
-      alert(data.error || '保存失败');
-    }
+    await refreshData();
+    showToast('已更新');
   } catch (e) {
-    console.error('保存文档失败:', e);
-    alert('保存失败');
+    showToast('更新失败', 'error');
   }
 }
 
-// 发布草稿
-async function publishDraft() {
-  if (!confirm('确定要发布这个草稿为正式需求吗？')) return;
-  
-  const productLine = document.getElementById('publish-product-line').value;
-  const priority = document.getElementById('publish-priority').value;
-  
+// 更新草稿状态
+async function updateDraftStatus(id, status) {
   try {
-    const res = await fetch(`/api/drafts/${currentDraftId}/publish`, {
+    const res = await fetch(`/api/drafts/${id}/status`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ productLine, priority })
+      body: JSON.stringify({ status })
     });
-    
     const data = await res.json();
     
-    if (res.ok) {
-      showToast(`已发布为需求 ${data.id}`);
-      await refreshData();
-      // 跳转到需求详情
-      showDetail(data.id);
-    } else {
-      alert(data.error || '发布失败');
+    if (!res.ok) {
+      showToast(data.error || '更新失败', 'error');
+      renderDraftsList(); // 恢复原状态
+      return;
     }
+    
+    await refreshData();
+    renderDraftsList();
+    showToast('状态已更新');
   } catch (e) {
-    console.error('发布草稿失败:', e);
-    alert('发布失败');
+    showToast('更新失败', 'error');
   }
 }
 
-// 搁置草稿
-async function archiveDraft() {
-  if (!confirm('确定要搁置这个草稿吗？')) return;
+// 显示发布弹窗
+function openPublishModal(draftId) {
+  const draft = currentData.drafts.find(d => d.id === draftId);
+  if (!draft) return;
+  
+  document.getElementById('publish-draft-id').value = draftId;
+  document.getElementById('publish-draft-title').textContent = draft.title || '无标题';
+  document.getElementById('publish-draft-desc').textContent = draft.description || '';
+  
+  // 预填已选产品线
+  const productLines = getAllProductLines();
+  const container = document.getElementById('publish-product-lines');
+  const currentPL = Array.isArray(draft.product_line) ? draft.product_line : [];
+  
+  container.innerHTML = productLines.map(pl => {
+    const checked = currentPL.includes(pl) ? 'checked' : '';
+    return `<label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-ink-50 rounded-lg cursor-pointer hover:bg-ink-100 text-sm">
+      <input type="checkbox" class="publish-pl-cb w-4 h-4" value="${pl}" ${checked}>${pl}
+    </label>`;
+  }).join('') || '<span class="text-sm text-ink-400">暂无产品线</span>';
+  
+  document.getElementById('publish-modal').classList.remove('hidden');
+}
+
+function closePublishModal() {
+  document.getElementById('publish-modal').classList.add('hidden');
+}
+
+// 确认发布
+async function confirmPublish() {
+  const draftId = document.getElementById('publish-draft-id').value;
+  const product_line = Array.from(document.querySelectorAll('#publish-product-lines .publish-pl-cb:checked')).map(cb => cb.value);
+  
+  if (product_line.length === 0) {
+    showToast('请至少选择一个产品线', 'error');
+    return;
+  }
   
   try {
-    const res = await fetch(`/api/drafts/${currentDraftId}/status`, {
+    const res = await fetch(`/api/drafts/${draftId}/publish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'archived' })
+      body: JSON.stringify({ product_line })
     });
     
-    if (res.ok) {
-      showToast('草稿已搁置');
-      await refreshData();
-      renderDraftDetail();
-    } else {
-      const data = await res.json();
-      alert(data.error || '操作失败');
-    }
+    if (!res.ok) throw new Error();
+    
+    const data = await res.json();
+    closePublishModal();
+    await refreshData();
+    renderDraftsList();
+    showToast(`已发布为 ${data.requirements.map(r => r.id).join(', ')}`);
   } catch (e) {
-    console.error('搁置草稿失败:', e);
-    alert('操作失败');
+    showToast('发布失败', 'error');
   }
-}
-
-// 确认删除草稿
-function confirmDeleteDraft() {
-  if (!confirm('确定要删除这个草稿吗？此操作不可恢复。')) return;
-  deleteDraft();
 }
 
 // 删除草稿
-async function deleteDraft() {
+async function deleteDraft(draftId) {
+  if (!confirm('确定要删除此草稿吗？')) return;
+  
   try {
-    const res = await fetch(`/api/drafts/${currentDraftId}`, {
-      method: 'DELETE'
-    });
+    const res = await fetch(`/api/drafts/${draftId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error();
     
-    if (res.ok) {
-      showToast('草稿已删除');
-      await refreshData();
-      showDraftsPage();
-    } else {
-      const data = await res.json();
-      alert(data.error || '删除失败');
-    }
+    await refreshData();
+    renderDraftsList();
+    showToast('草稿已删除');
   } catch (e) {
-    console.error('删除草稿失败:', e);
-    alert('删除失败');
+    showToast('删除失败', 'error');
   }
 }
 
-// 返回需求池列表
+// 返回需求池（兼容旧代码）
 function backToDrafts() {
   showDraftsPage();
 }
+
+// 显示创建草稿弹窗（兼容旧代码）
+function showCreateDraftModal() {
+  showDraftModal();
+}
+
+function closeCreateDraftModal() {
+  closeDraftModal();
+}
+
+// 兼容旧代码
+function createDraft() {
+  saveDraft();
+}
+
+// 以下旧函数已移除，由新实现替代：
+// - showDraftDetail -> openDraftModal
+// - renderDraftDetail -> renderDraftsList
+// - updateDraft -> updateDraftField / saveDraft
+// - publishDraft -> openPublishModal / confirmPublish
+// - archiveDraft -> updateDraftStatus
+// - confirmDeleteDraft -> deleteDraft (新实现)

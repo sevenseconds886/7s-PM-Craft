@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
+    "test": "playwright test",
     "pm": "node skills/workflow-orchestrator/cli.js"
   },
   "dependencies": {
