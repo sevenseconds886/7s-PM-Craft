@@ -687,17 +687,23 @@ function updateStatusViewModeButtons() {
 function renderKanban(reqs) {
   const board = document.getElementById('kanban-board');
 
-  // 高辨识度看板配色
+  // 看板配色：accent色用于左侧彩条+圆点
   const kanbanColorPalette = [
-    { header: 'bg-blue-50 border-blue-100', dot: 'bg-blue-500' },
-    { header: 'bg-amber-50 border-amber-100', dot: 'bg-amber-500' },
-    { header: 'bg-indigo-50 border-indigo-100', dot: 'bg-indigo-500' },
-    { header: 'bg-pink-50 border-pink-100', dot: 'bg-pink-500' },
-    { header: 'bg-emerald-50 border-emerald-100', dot: 'bg-emerald-500' },
-    { header: 'bg-stone-50 border-stone-200', dot: 'bg-stone-400' },
-    { header: 'bg-blue-50 border-blue-100', dot: 'bg-blue-500' },
-    { header: 'bg-amber-50 border-amber-100', dot: 'bg-amber-500' }
+    { accent: '#3b82f6' },
+    { accent: '#f59e0b' },
+    { accent: '#6366f1' },
+    { accent: '#ec4899' },
+    { accent: '#10b981' },
+    { accent: '#a8a29e' },
+    { accent: '#3b82f6' },
+    { accent: '#f59e0b' }
   ];
+
+  // 优先级圆点配色
+  const priorityDotColors = {
+    'P0': '#c46e52', 'P1': '#d98f78', 'P2': '#eab9a8',
+    'P3': '#c8d1bd', 'P4': '#d4cfc7', 'P5': '#e8e5e0'
+  };
 
   board.innerHTML = (settings.statusList || []).map((status, idx) => {
     const statusReqs = reqs.filter(r => r.status === status);
@@ -705,12 +711,12 @@ function renderKanban(reqs) {
 
     return `
       <div class="kanban-column flex-shrink-0 w-[280px] flex flex-col" data-status="${status}">
-        <div class="kanban-header border-b ${config.header}">
-          <div class="flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full ${config.dot}"></span>
-            <span class="text-sm font-medium text-ink-800">${status}</span>
+        <div class="kanban-header flex items-center justify-between border-b border-ink-100 bg-white px-3 py-2.5 relative overflow-hidden">
+          <div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:${config.accent};border-radius:0 2px 2px 0;"></div>
+          <div class="flex items-center gap-2 pl-2">
+            <span class="text-sm font-semibold text-ink-900">${status}</span>
           </div>
-          <span class="text-xs text-ink-500">${statusReqs.length}</span>
+          <span class="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-ink-50 text-[11px] font-bold text-ink-600">${statusReqs.length}</span>
         </div>
         <div class="flex-1 p-2 space-y-2 min-h-[200px]"
              ondragover="handleKanbanDragOver(event)"
@@ -719,22 +725,27 @@ function renderKanban(reqs) {
           ${statusReqs.map(req => `
             <div draggable="true"
                  ondragstart="handleKanbanDragStart(event, '${req.id}')"
-                 class="kanban-card rounded-xl shadow-sm p-4 border border-ink-100 bg-white cursor-grab relative group"
+                 class="kanban-card rounded-xl shadow-sm border border-ink-100 bg-white cursor-grab relative group overflow-hidden"
                  onclick="showDetail('${req.id}')">
-              <button onclick="event.stopPropagation(); archiveReqFromList('${req.id}')"
-                      onmousedown="event.stopPropagation()"
-                      class="absolute top-2 right-2 w-6 h-6 rounded-full bg-ink-100 text-ink-500 hover:bg-red-50 hover:text-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10"
-                      title="归档" draggable="false">
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 6v8h12V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 3h14v3H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-              </button>
-              <div class="text-sm text-ink-800 mb-2 pr-6" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${req.title}</div>
-              <div class="flex items-center justify-between">
-                <span class="font-mono text-xs text-ink-500">${req.id}</span>
-                <span class="priority-badge priority-${req.priority}">${req.priority}</span>
-              </div>
-              <div class="flex items-center gap-3 mt-2 text-xs text-ink-500">
-                ${req.sprint ? `<span class="px-2 py-0.5 bg-ink-50 rounded text-ink-500">${req.sprint}</span>` : ''}
-                <span>${(req.platform || ['web']).join(', ')}</span>
+              <div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:${config.accent};border-radius:12px 0 0 12px;"></div>
+              <div class="p-3.5 pl-5">
+                <button onclick="event.stopPropagation(); archiveReqFromList('${req.id}')"
+                        onmousedown="event.stopPropagation()"
+                        class="absolute top-2.5 right-2.5 w-6 h-6 rounded-full bg-ink-50 text-ink-400 hover:bg-red-50 hover:text-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10"
+                        title="归档" draggable="false">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 6v8h12V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 3h14v3H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                </button>
+                <div class="flex items-center gap-2 mb-2 pr-6">
+                  <span style="width:6px;height:6px;border-radius:50%;background:${priorityDotColors[req.priority] || '#d4cfc7'};flex-shrink:0;" title="${req.priority}"></span>
+                  <div class="text-sm text-ink-800 flex-1 font-medium" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${req.title}</div>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span class="font-mono text-xs text-ink-400">${req.id}</span>
+                  <div class="flex items-center gap-1.5 text-xs text-ink-400">
+                    ${req.sprint ? `<span class="px-1.5 py-0.5 bg-ink-50 border border-ink-100 rounded text-ink-500">${req.sprint}</span>` : ''}
+                    <span>${(req.platform || ['web']).join(', ')}</span>
+                  </div>
+                </div>
               </div>
             </div>
           `).join('')}
@@ -2451,17 +2462,23 @@ function renderSprintBoard() {
 function renderSprintKanbanBoard(reqs) {
   const board = document.getElementById('sprint-kanban-board');
 
-  // 高辨识度看板配色
+  // 看板配色：accent色用于左侧彩条+圆点
   const kanbanColorPalette = [
-    { header: 'bg-blue-50 border-blue-100', dot: 'bg-blue-500' },
-    { header: 'bg-amber-50 border-amber-100', dot: 'bg-amber-500' },
-    { header: 'bg-indigo-50 border-indigo-100', dot: 'bg-indigo-500' },
-    { header: 'bg-pink-50 border-pink-100', dot: 'bg-pink-500' },
-    { header: 'bg-emerald-50 border-emerald-100', dot: 'bg-emerald-500' },
-    { header: 'bg-stone-50 border-stone-200', dot: 'bg-stone-400' },
-    { header: 'bg-blue-50 border-blue-100', dot: 'bg-blue-500' },
-    { header: 'bg-amber-50 border-amber-100', dot: 'bg-amber-500' }
+    { accent: '#3b82f6' },
+    { accent: '#f59e0b' },
+    { accent: '#6366f1' },
+    { accent: '#ec4899' },
+    { accent: '#10b981' },
+    { accent: '#a8a29e' },
+    { accent: '#3b82f6' },
+    { accent: '#f59e0b' }
   ];
+
+  // 优先级圆点配色
+  const priorityDotColors = {
+    'P0': '#c46e52', 'P1': '#d98f78', 'P2': '#eab9a8',
+    'P3': '#c8d1bd', 'P4': '#d4cfc7', 'P5': '#e8e5e0'
+  };
 
   board.innerHTML = (settings.statusList || []).map((status, idx) => {
     const statusReqs = reqs.filter(r => r.status === status);
@@ -2469,12 +2486,12 @@ function renderSprintKanbanBoard(reqs) {
 
     return `
       <div class="kanban-column flex-shrink-0 w-[280px] flex flex-col" data-status="${status}">
-        <div class="kanban-header border-b ${config.header}">
-          <div class="flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full ${config.dot}"></span>
-            <span class="text-sm font-medium text-ink-800">${status}</span>
+        <div class="kanban-header flex items-center justify-between border-b border-ink-100 bg-white px-3 py-2.5 relative overflow-hidden">
+          <div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:${config.accent};border-radius:0 2px 2px 0;"></div>
+          <div class="flex items-center gap-2 pl-2">
+            <span class="text-sm font-semibold text-ink-900">${status}</span>
           </div>
-          <span class="text-xs text-ink-500">${statusReqs.length}</span>
+          <span class="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-ink-50 text-[11px] font-bold text-ink-600">${statusReqs.length}</span>
         </div>
         <div class="flex-1 p-2 space-y-2 min-h-[200px]"
              ondragover="handleKanbanDragOver(event)"
@@ -2483,24 +2500,29 @@ function renderSprintKanbanBoard(reqs) {
           ${statusReqs.map(req => `
             <div draggable="true"
                  ondragstart="handleKanbanDragStart(event, '${req.id}')"
-                 class="kanban-card rounded-xl shadow-sm p-4 border border-ink-100 bg-white cursor-grab relative group"
+                 class="kanban-card rounded-xl shadow-sm border border-ink-100 bg-white cursor-grab relative group overflow-hidden"
                  onclick="showDetail('${req.id}', 'sprint')">
-              <button onclick="event.stopPropagation(); archiveReqFromList('${req.id}')"
-                      onmousedown="event.stopPropagation()"
-                      class="absolute top-2 right-2 w-6 h-6 rounded-full bg-ink-100 text-ink-500 hover:bg-red-50 hover:text-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10"
-                      title="归档" draggable="false">
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 6v8h12V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 3h14v3H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-              </button>
-              <div class="text-sm text-ink-800 mb-2 pr-6" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${req.title}</div>
-              <div class="flex items-center justify-between">
-                <span class="font-mono text-xs text-ink-500">${req.id}</span>
-                <span class="priority-badge priority-${req.priority}">${req.priority}</span>
-              </div>
-              <div class="flex items-center gap-3 mt-2 text-xs text-ink-500">
-                ${(() => {
-                  const pls = Array.isArray(req.productLine) ? req.productLine : (req.productLine ? [req.productLine] : []);
-                  return pls.map(pl => `<span class="px-2 py-0.5 bg-ink-50 rounded text-ink-500">${pl}</span>`).join('');
-                })()}
+              <div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:${config.accent};border-radius:12px 0 0 12px;"></div>
+              <div class="p-3.5 pl-5">
+                <button onclick="event.stopPropagation(); archiveReqFromList('${req.id}')"
+                        onmousedown="event.stopPropagation()"
+                        class="absolute top-2.5 right-2.5 w-6 h-6 rounded-full bg-ink-50 text-ink-400 hover:bg-red-50 hover:text-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10"
+                        title="归档" draggable="false">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 6v8h12V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 3h14v3H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                </button>
+                <div class="flex items-center gap-2 mb-2 pr-6">
+                  <span style="width:6px;height:6px;border-radius:50%;background:${priorityDotColors[req.priority] || '#d4cfc7'};flex-shrink:0;" title="${req.priority}"></span>
+                  <div class="text-sm text-ink-800 flex-1 font-medium" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${req.title}</div>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span class="font-mono text-xs text-ink-400">${req.id}</span>
+                  <div class="flex items-center gap-1.5 text-xs text-ink-400">
+                    ${(() => {
+                      const pls = Array.isArray(req.productLine) ? req.productLine : (req.productLine ? [req.productLine] : []);
+                      return pls.map(pl => `<span class="px-1.5 py-0.5 bg-ink-50 border border-ink-100 rounded text-ink-500">${pl}</span>`).join('');
+                    })()}
+                  </div>
+                </div>
               </div>
             </div>
           `).join('')}
