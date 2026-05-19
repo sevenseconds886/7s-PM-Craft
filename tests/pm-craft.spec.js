@@ -260,24 +260,24 @@ test.describe('7s-PM-Craft E2E 测试', () => {
     test('表格中应存在状态下拉框', async ({ page }) => {
       const rowCount = await page.locator('tbody tr').count();
       if (rowCount > 0) {
-        const statusSelects = page.locator('select[onchange*="updateStatus"]');
-        await expect(statusSelects).toHaveCount(rowCount);
+        const statusDropdowns = page.locator('.cdropdown[data-onchange*="updateStatus"]');
+        await expect(statusDropdowns).toHaveCount(rowCount);
       }
     });
 
     test('表格中应存在优先级下拉框', async ({ page }) => {
       const rowCount = await page.locator('tbody tr').count();
       if (rowCount > 0) {
-        const prioritySelects = page.locator('select[onchange*="updatePriority"]');
-        await expect(prioritySelects).toHaveCount(rowCount);
+        const priorityDropdowns = page.locator('.cdropdown[data-onchange*="updatePriority"]');
+        await expect(priorityDropdowns).toHaveCount(rowCount);
       }
     });
 
     test('表格中应存在迭代下拉框', async ({ page }) => {
       const rowCount = await page.locator('tbody tr').count();
       if (rowCount > 0) {
-        const sprintSelects = page.locator('select[onchange*="updateSprint"]');
-        await expect(sprintSelects).toHaveCount(rowCount);
+        const sprintDropdowns = page.locator('.cdropdown[data-onchange*="updateSprint"]');
+        await expect(sprintDropdowns).toHaveCount(rowCount);
       }
     });
   });
@@ -403,7 +403,7 @@ test.describe('7s-PM-Craft E2E 测试', () => {
       await page.locator('#home-page').getByRole('button', { name: '新建需求' }).click();
       await expect(page.locator('#new-req-title')).toBeVisible();
       await expect(page.locator('#new-req-product-line-list')).toBeVisible();
-      await expect(page.locator('#new-req-priority')).toBeVisible();
+      await expect(page.locator('#cd-new-req-priority')).toBeVisible();
       await expect(page.locator('#new-req-due-date')).toBeVisible();
       await expect(page.locator('#new-req-platform-web')).toBeVisible();
       await expect(page.locator('#new-req-platform-mobile')).toBeVisible();
@@ -434,7 +434,9 @@ test.describe('7s-PM-Craft E2E 测试', () => {
         await page.locator('#create-req-modal').getByRole('button', { name: '添加' }).click();
       }
 
-      await page.locator('#new-req-priority').selectOption('P1');
+      // 使用自定义 dropdown 选择优先级
+      await page.locator('#cd-new-req-priority .cdropdown-trigger').click();
+      await page.locator('#cd-new-req-priority .cdropdown-option[data-value="P1"]').click();
       await page.locator('#new-req-developer').fill('测试开发');
       await page.locator('#new-req-requester').fill('测试产品');
 
@@ -647,7 +649,7 @@ test.describe('7s-PM-Craft E2E 测试', () => {
     });
 
     test('迭代视图页应显示产品线筛选下拉', async ({ page }) => {
-      await expect(page.locator('#sprint-product-line-filter')).toBeVisible();
+      await expect(page.locator('#cd-sprint-pl-filter')).toBeVisible();
     });
 
     test('点击列表按钮应切换到列表视图', async ({ page }) => {

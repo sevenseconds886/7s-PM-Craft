@@ -30,17 +30,17 @@
     body { font-family: 'Source Sans 3', system-ui, sans-serif; background: #f7f6f4; }
     .font-display { font-family: 'Playfair Display', serif; }
 
-    /* Status badges */
-    .status-badge { @apply px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide; background: #e8e5e0; color: #635a50; }
-    .status-设计中 { background: #e3e7dd; color: #3d4b36; }
-    .status-待评审 { background: #f5e6d8; color: #6e4a2f; }
-    .status-开发中 { background: #e8e5e0; color: #4a433c; }
-    .status-待验收 { background: #f5ddd4; color: #6e3428; }
-    .status-已完成 { background: #c8d1bd; color: #2e3829; }
-    .status-挂起 { background: #e8cdb3; color: #523624; }
+    /* Status badges — 高辨识度配色 */
+    .status-badge { @apply px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide inline-flex items-center; background: #e8e5e0; color: #635a50; }
+    .status-设计中 { background: #dbeafe; color: #1e40af; }
+    .status-待评审 { background: #fef3c7; color: #92400e; }
+    .status-开发中 { background: #e0e7ff; color: #3730a3; }
+    .status-待验收 { background: #fce7f3; color: #9d174d; }
+    .status-已完成 { background: #d1fae5; color: #065f46; }
+    .status-挂起   { background: #f1f0ee; color: #78716c; }
 
     /* Priority badges */
-    .priority-badge { @apply px-2 py-0.5 rounded text-xs font-bold; background-color: #d4cfc7; color: #4a433c; }
+    .priority-badge { @apply px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center; background-color: #d4cfc7; color: #4a433c; }
     .priority-P0 { background-color: #c46e52; color: white; }
     .priority-P1 { background-color: #d98f78; color: white; }
     .priority-P2 { background-color: #eab9a8; color: #52271f; }
@@ -48,14 +48,86 @@
     .priority-P4 { background-color: #d4cfc7; color: #4a433c; }
     .priority-P5 { background-color: #e8e5e0; color: #635a50; }
 
-    /* Select styling */
-    select { 
-      appearance: none; 
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23635a50' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 8px center;
-      padding-right: 24px;
+    /* ===== CustomDropdown 组件样式 ===== */
+    .cdropdown { position: relative; display: inline-block; user-select: none; }
+    .cdropdown-trigger {
+      display: inline-flex; align-items: center; justify-content: space-between; gap: 4px;
+      cursor: pointer; transition: all 0.15s ease; white-space: nowrap;
     }
+    .cdropdown-trigger .cd-arrow {
+      width: 14px; height: 14px; flex-shrink: 0; transition: transform 0.2s ease;
+    }
+    .cdropdown.open .cd-arrow { transform: rotate(180deg); }
+
+    /* 胶囊型（行内编辑 + 筛选栏） */
+    .cdropdown-pill .cdropdown-trigger {
+      border-radius: 9999px; padding: 4px 32px 4px 12px;
+      font-size: 13px; line-height: 1.4; min-width: 80px;
+      background-color: #f7f6f4; border: 1px solid #d4cfc7; color: #4a433c;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath fill='%23635a50' d='M7 9L2 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 10px center;
+    }
+    .cdropdown-pill .cdropdown-trigger:hover { border-color: #9a8f80; }
+    .cdropdown-pill .cd-arrow { display: none; }
+
+    /* 筛选栏尺寸 */
+    .cdropdown-filter .cdropdown-trigger {
+      padding: 8px 36px 8px 16px; font-size: 14px; min-width: 100px;
+    }
+
+    /* 圆角矩形型（弹窗表单） */
+    .cdropdown-form .cdropdown-trigger {
+      border-radius: 12px; padding: 10px 36px 10px 16px;
+      font-size: 14px; width: 100%; background-color: #ffffff;
+      border: 1px solid #d4cfc7; color: #4a433c;
+    }
+    .cdropdown-form .cdropdown-trigger:hover { border-color: #9a8f80; }
+    .cdropdown-form .cd-arrow { display: none; }
+
+    /* 下拉面板 */
+    .cdropdown-panel {
+      position: absolute; z-index: 50; margin-top: 4px;
+      background: #ffffff; border: 1px solid #e8e5e0; border-radius: 12px;
+      box-shadow: 0 8px 24px -4px rgba(28,26,23,0.12), 0 2px 6px -2px rgba(28,26,23,0.06);
+      padding: 4px; min-width: 100%; max-height: 240px; overflow-y: auto;
+      opacity: 0; transform: translateY(-4px); pointer-events: none;
+      transition: opacity 0.15s ease, transform 0.15s ease;
+    }
+    .cdropdown.open .cdropdown-panel {
+      opacity: 1; transform: translateY(0); pointer-events: auto;
+    }
+    .cdropdown-panel.upward { bottom: 100%; top: auto; margin-top: 0; margin-bottom: 4px; }
+
+    .cdropdown-option {
+      padding: 6px 12px; border-radius: 8px; cursor: pointer;
+      font-size: 13px; color: #4a433c; transition: background 0.1s ease;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .cdropdown-option:hover { background: #f7f6f4; }
+    .cdropdown-option.selected { background: #e8e5e0; color: #1c1a17; font-weight: 600; }
+    .cdropdown-option .cd-opt-badge {
+      display: inline-flex; align-items: center;
+      padding: 1px 8px; border-radius: 9999px; font-size: 12px; font-weight: 600;
+    }
+
+    /* 行内编辑 — 优先级着色 */
+    .cdropdown-pill.cd-priority-P0 .cdropdown-trigger { background-color: #c46e52; color: white; border-color: #c46e52; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath fill='white' d='M7 9L2 3h10z'/%3E%3C/svg%3E"); }
+    .cdropdown-pill.cd-priority-P1 .cdropdown-trigger { background-color: #d98f78; color: white; border-color: #d98f78; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath fill='white' d='M7 9L2 3h10z'/%3E%3C/svg%3E"); }
+    .cdropdown-pill.cd-priority-P2 .cdropdown-trigger { background-color: #eab9a8; color: #52271f; border-color: #eab9a8; }
+    .cdropdown-pill.cd-priority-P3 .cdropdown-trigger { background-color: #c8d1bd; color: #2e3829; border-color: #c8d1bd; }
+    .cdropdown-pill.cd-priority-P4 .cdropdown-trigger { background-color: #d4cfc7; color: #4a433c; border-color: #d4cfc7; }
+    .cdropdown-pill.cd-priority-P5 .cdropdown-trigger { background-color: #e8e5e0; color: #635a50; border-color: #e8e5e0; }
+
+    /* 行内编辑 — 状态着色（高辨识度） */
+    .cdropdown-pill.cd-status-设计中 .cdropdown-trigger { background-color: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+    .cdropdown-pill.cd-status-待评审 .cdropdown-trigger { background-color: #fef3c7; color: #92400e; border-color: #fcd34d; }
+    .cdropdown-pill.cd-status-开发中 .cdropdown-trigger { background-color: #e0e7ff; color: #3730a3; border-color: #a5b4fc; }
+    .cdropdown-pill.cd-status-待验收 .cdropdown-trigger { background-color: #fce7f3; color: #9d174d; border-color: #f9a8d4; }
+    .cdropdown-pill.cd-status-已完成 .cdropdown-trigger { background-color: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+    .cdropdown-pill.cd-status-挂起   .cdropdown-trigger { background-color: #f1f0ee; color: #78716c; border-color: #d6d3d1; }
+
+    /* 隐藏原生select备用（仅无JS降级） */
+    select.fallback-select { display: none; }
 
     /* Table row hover */
     .req-row { transition: all 0.15s ease; }
@@ -103,7 +175,7 @@
     /* Kanban */
     .kanban-column { transition: all 0.2s ease; }
     .kanban-card { transition: all 0.2s ease; }
-    .kanban-card:hover { transform: translateY(-2px); }
+    .kanban-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px -2px rgba(28,26,23,0.1); }
     .kanban-card:active { cursor: grabbing; }
     .line-clamp-2 {
       display: -webkit-box;
@@ -121,6 +193,263 @@
     .sprint-list-item { transition: all 0.15s ease; border-left: 3px solid transparent; }
     .sprint-list-item:hover { background: #f0eee9; }
     .sprint-list-item.active { background: #e8e5e0; border-left-color: #7d7166; }
+
+    /* Prose 陶土色系定制 */
+    .prose {
+      --tw-prose-body: #4a433c;
+      --tw-prose-headings: #1c1a17;
+      --tw-prose-links: #a8764a;
+      --tw-prose-bold: #332e29;
+      --tw-prose-counters: #7d7166;
+      --tw-prose-bullets: #9a8f80;
+      --tw-prose-hr: #d4cfc7;
+      --tw-prose-quotes: #635a50;
+      --tw-prose-quote-borders: #c08f60;
+      --tw-prose-captions: #7d7166;
+      --tw-prose-code: #8c5f3a;
+      --tw-prose-pre-code: #332e29;
+      --tw-prose-pre-bg: #f7f6f4;
+      --tw-prose-th-borders: #d4cfc7;
+      --tw-prose-td-borders: #e8e5e0;
+    }
+    .prose h1, .prose h2, .prose h3, .prose h4 {
+      font-family: 'Playfair Display', serif;
+    }
+    .prose a {
+      color: #a8764a;
+      text-decoration: none;
+      border-bottom: 1px solid #e8cdb3;
+      transition: border-color 0.15s ease;
+    }
+    .prose a:hover {
+      border-bottom-color: #a8764a;
+    }
+    .prose code {
+      background: #f7f6f4;
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      font-size: 0.875em;
+      color: #8c5f3a;
+    }
+    .prose pre {
+      background: #f7f6f4;
+      border: 1px solid #e8e5e0;
+      border-radius: 12px;
+    }
+    .prose pre code {
+      background: transparent;
+      padding: 0;
+      border-radius: 0;
+    }
+    .prose blockquote {
+      border-left-color: #c08f60;
+    }
+    .prose img {
+      border-radius: 12px;
+    }
+
+    /* ===== 文档面板增强样式 ===== */
+
+    /* YAML 元信息栏 */
+    .doc-meta-bar {
+      background: #fdf8f5;
+      border: 1px solid #f5e6d8;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    .doc-meta-bar .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+    .doc-meta-bar .meta-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .doc-meta-bar .meta-label {
+      font-size: 11px;
+      color: #9a8f80;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      min-width: 48px;
+      flex-shrink: 0;
+    }
+    .doc-meta-bar .meta-value {
+      font-size: 13px;
+      color: #332e29;
+      font-weight: 500;
+    }
+    .doc-meta-bar .meta-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .doc-meta-bar .meta-tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 10px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 500;
+      background: #e8e5e0;
+      color: #4a433c;
+    }
+
+    /* 文档内容区 — 增强排版 */
+    #doc-content .prose {
+      max-width: 65ch;
+    }
+    #doc-content .prose h1 {
+      font-size: 1.25rem;
+      margin-top: 1.6em;
+      margin-bottom: 0.6em;
+      padding-bottom: 0.4em;
+      border-bottom: 2px solid #e8e5e0;
+    }
+    #doc-content .prose h2 {
+      font-size: 1.1rem;
+      margin-top: 1.4em;
+      margin-bottom: 0.5em;
+      padding-bottom: 0.3em;
+      border-bottom: 1px solid #e8e5e0;
+    }
+    #doc-content .prose h3 {
+      font-size: 1rem;
+      margin-top: 1.2em;
+      margin-bottom: 0.4em;
+    }
+    #doc-content .prose h4 {
+      font-size: 0.9375rem;
+      margin-top: 1em;
+      margin-bottom: 0.3em;
+    }
+    #doc-content .prose p {
+      margin-bottom: 1.2em;
+      line-height: 1.75;
+    }
+    #doc-content .prose ul,
+    #doc-content .prose ol {
+      margin-bottom: 1.2em;
+      padding-left: 1.5em;
+    }
+    #doc-content .prose li {
+      margin-bottom: 0.3em;
+      line-height: 1.65;
+    }
+    #doc-content .prose blockquote {
+      background: #fdf8f5;
+      border-left: 3px solid #c08f60;
+      padding: 12px 16px;
+      border-radius: 0 8px 8px 0;
+      margin: 1em 0;
+    }
+    #doc-content .prose blockquote p {
+      margin-bottom: 0.4em;
+      font-size: 0.875em;
+      color: #635a50;
+    }
+    #doc-content .prose blockquote p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* 表格增强 */
+    #doc-content .prose table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      margin: 1.2em 0;
+      font-size: 0.8125rem;
+      border: 1px solid #e8e5e0;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    #doc-content .prose thead {
+      background: #4a433c;
+    }
+    #doc-content .prose thead th {
+      color: #ffffff;
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 10px 14px;
+      border: none;
+      text-align: left;
+    }
+    #doc-content .prose thead th:first-child {
+      border-radius: 0;
+    }
+    #doc-content .prose thead th:last-child {
+      border-radius: 0;
+    }
+    #doc-content .prose tbody tr {
+      transition: background 0.1s ease;
+    }
+    #doc-content .prose tbody tr:nth-child(even) {
+      background: #fdf8f5;
+    }
+    #doc-content .prose tbody tr:hover {
+      background: #f5e6d8;
+    }
+    #doc-content .prose tbody td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #e8e5e0;
+      color: #4a433c;
+      line-height: 1.5;
+    }
+    #doc-content .prose tbody tr:last-child td {
+      border-bottom: none;
+    }
+    #doc-content .prose tbody td strong {
+      color: #1c1a17;
+    }
+
+    /* ===== 拖拽分隔条 ===== */
+    .resize-handle {
+      flex-shrink: 0;
+      z-index: 10;
+      transition: background 0.15s ease;
+    }
+    .resize-handle-v {
+      width: 5px;
+      cursor: col-resize;
+      background: transparent;
+      position: relative;
+    }
+    .resize-handle-v::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 3px;
+      height: 32px;
+      border-radius: 2px;
+      background: #d4cfc7;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+    .resize-handle-v:hover::after,
+    .resize-handle-v.active::after {
+      opacity: 1;
+      background: #9a8f80;
+    }
+    .resize-handle-v:hover,
+    .resize-handle-v.active {
+      background: rgba(168,118,74,0.06);
+    }
+    body.resizing {
+      cursor: col-resize !important;
+      user-select: none !important;
+    }
+    body.resizing * {
+      pointer-events: none !important;
+    }
+    body.resizing .resize-handle {
+      pointer-events: auto !important;
+    }
   </style>
 </head>
 <body class="text-ink-800 antialiased">
@@ -144,15 +473,15 @@
             </svg>
           </div>
           <button onclick="showSettings()" class="px-4 py-2 text-sm font-medium text-ink-600 hover:text-ink-900 transition-colors">设置</button>
-          <button onclick="showCreateSprintModal()" class="px-4 py-2 text-sm font-medium text-ink-600 border border-ink-200 rounded-lg hover:bg-ink-50 transition-colors flex items-center gap-2">
+          <button onclick="showCreateSprintModal()" class="px-4 py-2 text-sm font-medium text-ink-600 border border-ink-200 rounded-full hover:bg-ink-50 transition-colors flex items-center gap-2">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M8 1v5h5M8 6a5 5 0 1 1-5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             新建迭代
           </button>
-          <button onclick="showCreateReqModal()" class="px-4 py-2 bg-ink-800 text-white text-sm font-medium rounded-lg hover:bg-ink-700 transition-colors flex items-center gap-2">
+          <button onclick="showCreateReqModal()" class="px-4 py-2 bg-ink-800 text-white text-sm font-medium rounded-full hover:bg-ink-700 transition-colors flex items-center gap-2">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
             新建需求
           </button>
-          <button onclick="refreshData()" class="px-4 py-2 text-sm font-medium text-ink-600 border border-ink-200 rounded-lg hover:bg-ink-50 transition-colors">刷新</button>
+          <button onclick="refreshData()" class="px-4 py-2 text-sm font-medium text-ink-600 border border-ink-200 rounded-full hover:bg-ink-50 transition-colors">刷新</button>
         </div>
       </header>
 
@@ -261,14 +590,14 @@
           </button>
           <div class="w-px h-5 bg-ink-200"></div>
           <h2 id="list-title" class="font-display text-xl font-bold text-ink-900"></h2>
-          <button id="clear-search-btn" class="hidden px-3 py-1 text-sm text-ink-600 border border-ink-200 rounded-lg hover:bg-ink-50 transition-colors" onclick="clearSearch()">清除搜索</button>
+          <button id="clear-search-btn" class="hidden px-3 py-1 text-sm text-ink-600 border border-ink-200 rounded-full hover:bg-ink-50 transition-colors" onclick="clearSearch()">清除搜索</button>
         </div>
         <div class="flex items-center gap-3">
-          <button onclick="showCreateSprintModal()" class="px-4 py-2 text-sm font-medium text-ink-600 border border-ink-200 rounded-lg hover:bg-ink-50 transition-colors flex items-center gap-2">
+          <button onclick="showCreateSprintModal()" class="px-4 py-2 text-sm font-medium text-ink-600 border border-ink-200 rounded-full hover:bg-ink-50 transition-colors flex items-center gap-2">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M8 1v5h5M8 6a5 5 0 1 1-5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             新建迭代
           </button>
-          <button onclick="showCreateReqModal()" class="px-4 py-2 bg-ink-800 text-white text-sm font-medium rounded-lg hover:bg-ink-700 transition-colors flex items-center gap-2">
+          <button onclick="showCreateReqModal()" class="px-4 py-2 bg-ink-800 text-white text-sm font-medium rounded-full hover:bg-ink-700 transition-colors flex items-center gap-2">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
             新建需求
           </button>
@@ -279,19 +608,15 @@
         <!-- 筛选栏 -->
         <div id="filter-bar" class="flex flex-wrap items-center gap-3 mb-4 animate-fade-in">
           <!-- 优先级筛选 -->
-          <select id="filter-priority" onchange="applyFilters()" class="text-sm bg-white border border-ink-200 rounded-lg px-3 py-2 focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all">
-            <option value="">全部优先级</option>
-          </select>
+          <div id="filter-priority-dd"></div>
           <!-- 迭代筛选 -->
-          <select id="filter-sprint" onchange="applyFilters()" class="text-sm bg-white border border-ink-200 rounded-lg px-3 py-2 focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all">
-            <option value="">全部迭代</option>
-          </select>
+          <div id="filter-sprint-dd"></div>
           <!-- 负责人筛选 -->
-          <input type="text" id="filter-developer" oninput="applyFilters()" placeholder="负责人" class="text-sm bg-white border border-ink-200 rounded-lg px-3 py-2 focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all w-28">
+          <input type="text" id="filter-developer" oninput="applyFilters()" placeholder="负责人" class="text-sm bg-ink-50 border border-ink-200 rounded-full px-4 py-2 focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all w-28">
           <!-- 提出人筛选 -->
-          <input type="text" id="filter-requester" oninput="applyFilters()" placeholder="提出人" class="text-sm bg-white border border-ink-200 rounded-lg px-3 py-2 focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all w-28">
+          <input type="text" id="filter-requester" oninput="applyFilters()" placeholder="提出人" class="text-sm bg-ink-50 border border-ink-200 rounded-full px-4 py-2 focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all w-28">
           <!-- 清除筛选 -->
-          <button id="clear-filter-btn" onclick="clearFilters()" class="hidden px-3 py-2 text-sm text-ink-600 border border-ink-200 rounded-lg hover:bg-ink-50 transition-colors flex items-center gap-1">
+          <button id="clear-filter-btn" onclick="clearFilters()" class="hidden px-3 py-2 text-sm text-ink-600 border border-ink-200 rounded-full hover:bg-ink-50 transition-colors flex items-center gap-1">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
             清除筛选
           </button>
@@ -351,11 +676,11 @@
           <span id="detail-header" class="text-base font-medium text-ink-800"></span>
         </div>
         <div class="flex gap-3">
-          <button onclick="toggleDocPanel()" id="doc-toggle-btn" class="px-4 py-2 text-sm font-medium text-ink-600 border border-ink-200 rounded-lg hover:bg-ink-50 transition-colors flex items-center gap-2">
+          <button onclick="toggleDocPanel()" id="doc-toggle-btn" class="px-4 py-2 text-sm font-medium text-ink-600 border border-ink-200 rounded-full hover:bg-ink-50 transition-colors flex items-center gap-2">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
             需求文档
           </button>
-          <button onclick="showVersionHistory()" class="px-4 py-2 text-sm font-medium text-ink-600 border border-ink-200 rounded-lg hover:bg-ink-50 transition-colors flex items-center gap-2">
+          <button onclick="showVersionHistory()" class="px-4 py-2 text-sm font-medium text-ink-600 border border-ink-200 rounded-full hover:bg-ink-50 transition-colors flex items-center gap-2">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M7 4v3l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             版本历史
           </button>
@@ -364,7 +689,9 @@
 
       <div class="flex flex-1 overflow-hidden">
         <!-- 左侧需求列表 -->
-        <div class="w-64 bg-white border-r border-ink-100 overflow-y-auto" id="detail-sidebar"></div>
+        <div class="bg-white border-r border-ink-100 overflow-y-auto" id="detail-sidebar" style="width:256px;min-width:180px;max-width:400px;"></div>
+        <!-- 左侧拖拽条 -->
+        <div class="resize-handle resize-handle-v" id="sidebar-resizer" title="拖拽调整宽度"></div>
 
         <!-- 中间原型区域 -->
         <div class="flex-1 bg-ink-50 relative flex items-center justify-center" id="prototype-area">
@@ -372,23 +699,26 @@
           <button onclick="togglePrototypeFullscreen()" id="proto-fullscreen-btn" class="absolute top-4 right-4 w-9 h-9 bg-white rounded-xl shadow-sm border border-ink-100 flex items-center justify-center text-ink-500 hover:text-ink-800 hover:bg-ink-50 transition-all z-10" title="全屏">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
-          <div class="p-8 w-full h-full flex items-center justify-center">
+          <div class="p-3 w-full h-full flex items-center justify-center">
             <div id="prototype-container" class="bg-white rounded-2xl shadow-lg overflow-hidden proto-container relative">
               <iframe id="prototype-frame" class="w-full h-full border-0"></iframe>
             </div>
           </div>
         </div>
 
+        <!-- 右侧拖拽条 -->
+        <div class="resize-handle resize-handle-v" id="doc-resizer" title="拖拽调整宽度" style="display:none"></div>
+
         <!-- 右侧需求文档 -->
-        <div class="w-[420px] bg-white border-l border-ink-100 overflow-y-auto hidden flex flex-col" id="doc-panel">
+        <div class="bg-white border-l border-ink-100 overflow-y-auto hidden flex flex-col" id="doc-panel" style="width:380px;min-width:260px;max-width:600px">
           <div class="px-6 py-3 border-b border-ink-100 flex items-center justify-between bg-white">
             <span class="text-sm font-semibold text-ink-700">需求文档</span>
             <div class="flex gap-2">
-              <button onclick="toggleDocEditMode()" id="doc-edit-btn" class="px-3 py-1.5 text-xs font-medium text-ink-600 border border-ink-200 rounded-lg hover:bg-ink-50 transition-colors flex items-center gap-1">
+              <button onclick="toggleDocEditMode()" id="doc-edit-btn" class="px-3 py-1.5 text-xs font-medium text-ink-600 border border-ink-200 rounded-full hover:bg-ink-50 transition-colors flex items-center gap-1">
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M11 2L14 5M2 14l3-1 8-8-3-3-8 8-1 3z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 编辑
               </button>
-              <button onclick="saveDocContent()" id="doc-save-btn" class="px-3 py-1.5 text-xs font-medium text-white bg-ink-800 rounded-lg hover:bg-ink-700 transition-colors hidden flex items-center gap-1">
+              <button onclick="saveDocContent()" id="doc-save-btn" class="px-3 py-1.5 text-xs font-medium text-white bg-ink-800 rounded-full hover:bg-ink-700 transition-colors hidden flex items-center gap-1">
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 保存
               </button>
@@ -429,7 +759,7 @@
           <div class="w-px h-5 bg-ink-200"></div>
           <h2 class="font-display text-xl font-bold text-ink-900">需求池</h2>
         </div>
-        <button onclick="showDraftModal()" class="px-4 py-2 bg-clay-500 text-white text-sm font-medium rounded-lg hover:bg-clay-600 transition-colors">
+        <button onclick="showDraftModal()" class="px-4 py-2 bg-clay-500 text-white text-sm font-medium rounded-full hover:bg-clay-600 transition-colors">
           + 新建草稿
         </button>
       </header>
@@ -437,17 +767,15 @@
       <!-- 筛选栏 -->
       <div class="bg-white border-b border-ink-100 px-8 py-3 flex items-center gap-4">
         <div class="flex items-center gap-2" id="status-filter-tabs">
-          <button onclick="setDraftStatusFilter('')" data-status="" class="status-tab px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">全部</button>
-          <button onclick="setDraftStatusFilter('draft')" data-status="draft" class="status-tab px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">草稿</button>
-          <button onclick="setDraftStatusFilter('in_progress')" data-status="in_progress" class="status-tab px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">进行中</button>
-          <button onclick="setDraftStatusFilter('published')" data-status="published" class="status-tab px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">已发布</button>
+          <button onclick="setDraftStatusFilter('')" data-status="" class="status-tab px-3 py-1.5 rounded-full text-sm font-medium transition-colors">全部</button>
+          <button onclick="setDraftStatusFilter('draft')" data-status="draft" class="status-tab px-3 py-1.5 rounded-full text-sm font-medium transition-colors">草稿</button>
+          <button onclick="setDraftStatusFilter('in_progress')" data-status="in_progress" class="status-tab px-3 py-1.5 rounded-full text-sm font-medium transition-colors">进行中</button>
+          <button onclick="setDraftStatusFilter('published')" data-status="published" class="status-tab px-3 py-1.5 rounded-full text-sm font-medium transition-colors">已发布</button>
         </div>
         <div class="w-px h-5 bg-ink-200"></div>
-        <select id="draft-product-line-filter" onchange="renderDraftsList()" class="text-sm bg-white border border-ink-200 rounded-lg px-3 py-2 focus:outline-none focus:border-ink-400">
-          <option value="">全部产品线</option>
-        </select>
+        <div id="draft-product-line-filter-dd"></div>
         <div class="flex-1"></div>
-        <input type="text" id="draft-search" oninput="renderDraftsList()" placeholder="搜索标题..." class="text-sm bg-white border border-ink-200 rounded-lg px-3 py-2 focus:outline-none focus:border-ink-400 w-48">
+        <input type="text" id="draft-search" oninput="renderDraftsList()" placeholder="搜索标题..." class="text-sm bg-ink-50 border border-ink-200 rounded-full px-4 py-2 focus:outline-none focus:border-ink-400 w-48">
       </div>
 
       <!-- 列表表格 -->
@@ -535,11 +863,7 @@
           <!-- 优先级 -->
           <div>
             <label class="block text-sm font-medium text-ink-700 mb-1.5">优先级</label>
-            <select id="draft-priority-input" class="w-full px-4 py-2.5 border border-ink-200 rounded-xl text-sm focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 bg-white">
-              <option value="low">低</option>
-              <option value="medium" selected>中</option>
-              <option value="high">高</option>
-            </select>
+            <div id="draft-priority-input-dd"></div>
           </div>
 
           <!-- 来源 -->
@@ -611,9 +935,7 @@
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
             </button>
           </div>
-          <select id="sprint-product-line-filter" onchange="renderSprintView()" class="text-sm bg-white border border-ink-200 rounded-lg px-3 py-2 focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all">
-            <option value="">全部产品线</option>
-          </select>
+          <div id="sprint-product-line-filter-dd"></div>
         </div>
       </header>
       <div class="flex flex-1 overflow-hidden">
@@ -679,7 +1001,7 @@
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="block text-sm font-medium text-ink-700 mb-1.5">优先级</label>
-              <select id="new-req-priority" class="w-full px-4 py-2.5 border border-ink-200 rounded-xl text-sm focus:outline-none focus:border-ink-400 focus:ring-2 focus:ring-ink-100 transition-all bg-white"></select>
+              <div id="new-req-priority-dd"></div>
             </div>
             <div>
               <label class="block text-sm font-medium text-ink-700 mb-1.5">预计上线</label>

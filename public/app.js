@@ -21,6 +21,243 @@ let currentDraftId = null;
 let editingDraft = null;
 let currentDraftStatusFilter = ''; // 当前状态筛选
 
+// ===== 面板拖拽调整宽度 =====
+function initResizablePanels() {
+  const sidebar = document.getElementById('detail-sidebar');
+  const sidebarResizer = document.getElementById('sidebar-resizer');
+  const docPanel = document.getElementById('doc-panel');
+  const docResizer = document.getElementById('doc-resizer');
+
+  // 从 localStorage 恢复宽度
+  const savedSidebar = localStorage.getItem('pm-sidebar-width');
+  const savedDoc = localStorage.getItem('pm-doc-width');
+  if (savedSidebar) sidebar.style.width = savedSidebar + 'px';
+  if (savedDoc) docPanel.style.width = savedDoc + 'px';
+
+  function makeResizable(handle, target, direction, minW, maxW, storageKey) {
+    let startX, startW;
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startX = e.clientX;
+      startW = target.offsetWidth;
+      handle.classList.add('active');
+      document.body.classList.add('resizing');
+      const onMove = (e) => {
+        const dx = e.clientX - startX;
+        const newW = direction === 'left' ? startW + dx : startW - dx;
+        const clamped = Math.max(minW, Math.min(maxW, newW));
+        target.style.width = clamped + 'px';
+      };
+      const onUp = () => {
+        handle.classList.remove('active');
+        document.body.classList.remove('resizing');
+        localStorage.setItem(storageKey, target.offsetWidth);
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  // 左侧 sidebar：向右拖放大
+  makeResizable(sidebarResizer, sidebar, 'left', 180, 400, 'pm-sidebar-width');
+  // 右侧 doc panel：向左拖放大
+  makeResizable(docResizer, docPanel, 'right', 260, 600, 'pm-doc-width');
+}
+
+// ===== CustomDropdown 组件 =====
+const CD_INSTANCES = new Map();
+let _cdUID = 0;
+
+// 颜色映射表
+const CD_STATUS_COLORS = {
+  '设计中': { bg: '#dbeafe', text: '#1e40af', border: '#93c5fd' },
+  '待评审': { bg: '#fef3c7', text: '#92400e', border: '#fcd34d' },
+  '开发中': { bg: '#e0e7ff', text: '#3730a3', border: '#a5b4fc' },
+  '待验收': { bg: '#fce7f3', text: '#9d174d', border: '#f9a8d4' },
+  '已完成': { bg: '#d1fae5', text: '#065f46', border: '#6ee7b7' },
+  '挂起':   { bg: '#f1f0ee', text: '#78716c', border: '#d6d3d1' },
+};
+const CD_PRIORITY_COLORS = {
+  'P0': { bg: '#c46e52', text: '#ffffff' },
+  'P1': { bg: '#d98f78', text: '#ffffff' },
+  'P2': { bg: '#eab9a8', text: '#52271f' },
+  'P3': { bg: '#c8d1bd', text: '#2e3829' },
+  'P4': { bg: '#d4cfc7', text: '#4a433c' },
+  'P5': { bg: '#e8e5e0', text: '#635a50' },
+};
+
+function cdGetOptBadgeStyle(type, value) {
+  if (type === 'status' && CD_STATUS_COLORS[value]) {
+    return `background:${CD_STATUS_COLORS[value].bg};color:${CD_STATUS_COLORS[value].text};`;
+  }
+  if (type === 'priority' && CD_PRIORITY_COLORS[value]) {
+    return `background:${CD_PRIORITY_COLORS[value].bg};color:${CD_PRIORITY_COLORS[value].text};`;
+  }
+  return '';
+}
+
+/**
+ * 生成 CustomDropdown HTML 片段
+ * @param {Object} cfg
+ * @param {string} cfg.id        - 唯一ID
+ * @param {string} cfg.value     - 当前选中值
+ * @param {Array}  cfg.options   - [{value, label}]
+ * @param {string} cfg.style     - 'pill' | 'filter' | 'form'
+ * @param {string} cfg.colorType - 'status' | 'priority' | '' (无着色)
+ * @param {string} cfg.onChange  - 回调函数名，如 'updateStatus'
+ * @param {string} cfg.extraClass - 额外 class
+ * @param {string} cfg.stopClick - 是否阻止事件冒泡（行内编辑用）
+ */
+function cdRender(cfg) {
+  const uid = cfg.id || ('cd-' + (++_cdUID));
+  const styleCls = cfg.style === 'filter' ? 'cdropdown-pill cdropdown-filter'
+    : cfg.style === 'form' ? 'cdropdown-form'
+    : 'cdropdown-pill';
+  const colorCls = cfg.colorType && cfg.value ? `cd-${cfg.colorType}-${cfg.value}` : '';
+  const selOpt = cfg.options.find(o => o.value === cfg.value) || cfg.options[0];
+  const label = selOpt ? selOpt.label : '';
+
+  const optsHtml = cfg.options.map(o => {
+    const sel = o.value === cfg.value ? 'selected' : '';
+    const badgeStyle = cdGetOptBadgeStyle(cfg.colorType, o.value);
+    const badgeHtml = badgeStyle ? `<span class="cd-opt-badge" style="${badgeStyle}">${o.label}</span>` : '';
+    return `<div class="cdropdown-option ${sel}" data-value="${o.value}">${badgeHtml || o.label}</div>`;
+  }).join('');
+
+  const stopClickAttr = cfg.stopClick ? 'onclick="event.stopPropagation()"' : '';
+
+  return `<div class="cdropdown ${styleCls} ${colorCls} ${cfg.extraClass || ''}" id="${uid}" data-onchange="${cfg.onChange || ''}" data-cd-value="${cfg.value || ''}" ${stopClickAttr}>
+    <div class="cdropdown-trigger" onclick="cdToggle('${uid}')">
+      <span class="cd-label">${label}</span>
+      <svg class="cd-arrow" viewBox="0 0 14 14" fill="none"><path fill="currentColor" d="M7 9L2 3h10z"/></svg>
+    </div>
+    <div class="cdropdown-panel">${optsHtml}</div>
+  </div>`;
+}
+
+function cdToggle(uid) {
+  const el = document.getElementById(uid);
+  if (!el) return;
+  // 先关闭其他
+  document.querySelectorAll('.cdropdown.open').forEach(d => { if (d.id !== uid) d.classList.remove('open'); });
+  el.classList.toggle('open');
+  // 计算是否向上展开
+  if (el.classList.contains('open')) {
+    const panel = el.querySelector('.cdropdown-panel');
+    const rect = el.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    panel.classList.toggle('upward', spaceBelow < 200);
+  }
+}
+
+function cdSelect(uid, value) {
+  const el = document.getElementById(uid);
+  if (!el) return;
+  el.dataset.cdValue = value;
+  el.classList.remove('open');
+
+  // 更新颜色 class
+  const colorType = Array.from(el.classList).find(c => c.startsWith('cd-status-') || c.startsWith('cd-priority-'));
+  if (colorType) el.classList.remove(colorType);
+  // 检测新颜色类型
+  const isStatus = el.classList.contains('cdropdown-pill') || el.classList.contains('cdropdown-filter');
+  // 从 options 中推断 colorType
+  const prevColorCls = el.className.match(/\bcd-(status|priority)-\S+/);
+  if (prevColorCls) el.classList.remove(prevColorCls[0]);
+  // 重新检测：看 data-onchange 或 class 来推断
+  const onchange = el.dataset.onchange;
+  let colorType2 = '';
+  if (onchange && onchange.includes('Status')) colorType2 = 'status';
+  else if (onchange && onchange.includes('Priority') || onchange.includes('priority')) colorType2 = 'priority';
+  if (colorType2 && value) el.classList.add(`cd-${colorType2}-${value}`);
+
+  // 更新 label
+  const optEl = el.querySelector(`.cdropdown-option[data-value="${CSS.escape(value)}"]`);
+  const label = optEl ? (optEl.querySelector('.cd-opt-badge')?.textContent || optEl.textContent.trim()) : value;
+  el.querySelector('.cd-label').textContent = label;
+
+  // 更新 selected
+  el.querySelectorAll('.cdropdown-option').forEach(o => o.classList.toggle('selected', o.dataset.value === value));
+
+  // 触发回调
+  if (onchange) {
+    // 解析 "funcName('arg1','arg2')" 格式，把 value 作为最后一个参数
+    const fnMatch = onchange.match(/^(\w+)\((.*)\)$/);
+    if (fnMatch) {
+      const fn = window[fnMatch[1]];
+      if (fn) {
+        const args = fnMatch[2] ? fnMatch[2].split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')) : [];
+        fn(...args, value);
+      }
+    }
+  }
+}
+
+// 点击外部关闭
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.cdropdown')) {
+    document.querySelectorAll('.cdropdown.open').forEach(d => d.classList.remove('open'));
+  }
+});
+
+// option 点击事件委托
+document.addEventListener('click', (e) => {
+  const opt = e.target.closest('.cdropdown-option');
+  if (!opt) return;
+  e.stopPropagation();
+  const dropdown = opt.closest('.cdropdown');
+  if (!dropdown) return;
+  cdSelect(dropdown.id, opt.dataset.value);
+});
+
+// 获取 dropdown 当前值
+function cdGetValue(uid) {
+  const el = document.getElementById(uid);
+  return el ? el.dataset.cdValue : '';
+}
+
+// 设置 dropdown 值（不触发回调）
+function cdSetValue(uid, value) {
+  const el = document.getElementById(uid);
+  if (!el) return;
+  el.dataset.cdValue = value;
+  // 更新颜色 class
+  const prevColorCls = el.className.match(/\bcd-(status|priority)-\S+/);
+  if (prevColorCls) el.classList.remove(prevColorCls[0]);
+  const onchange = el.dataset.onchange;
+  let colorType = '';
+  if (onchange && onchange.includes('Status')) colorType = 'status';
+  else if (onchange && onchange.includes('Priority') || onchange.includes('priority')) colorType = 'priority';
+  if (colorType && value) el.classList.add(`cd-${colorType}-${value}`);
+  // 更新 label 和 selected
+  const optEl = el.querySelector(`.cdropdown-option[data-value="${CSS.escape(value)}"]`);
+  const label = optEl ? (optEl.querySelector('.cd-opt-badge')?.textContent || optEl.textContent.trim()) : value;
+  el.querySelector('.cd-label').textContent = label;
+  el.querySelectorAll('.cdropdown-option').forEach(o => o.classList.toggle('selected', o.dataset.value === value));
+}
+
+// 更新 dropdown 的 options
+function cdUpdateOptions(uid, options, selectedValue) {
+  const el = document.getElementById(uid);
+  if (!el) return;
+  const panel = el.querySelector('.cdropdown-panel');
+  // 推断 colorType
+  const onchange = el.dataset.onchange;
+  let colorType = '';
+  if (onchange && onchange.includes('Status')) colorType = 'status';
+  else if (onchange && onchange.includes('Priority') || onchange.includes('priority')) colorType = 'priority';
+
+  panel.innerHTML = options.map(o => {
+    const sel = o.value === selectedValue ? 'selected' : '';
+    const badgeStyle = cdGetOptBadgeStyle(colorType, o.value);
+    const badgeHtml = badgeStyle ? `<span class="cd-opt-badge" style="${badgeStyle}">${o.label}</span>` : '';
+    return `<div class="cdropdown-option ${sel}" data-value="${o.value}">${badgeHtml || o.label}</div>`;
+  }).join('');
+  if (selectedValue !== undefined) cdSetValue(uid, selectedValue);
+}
+
 // Toast 提示 - Apple 风格
 function showToast(message, type = 'success') {
   const toast = document.createElement('div');
@@ -40,14 +277,14 @@ function initCustomStyles() {
   const defaultStatuses = ['设计中', '待评审', '开发中', '待验收', '已完成', '挂起'];
   const defaultPriorities = ['P0', 'P1', 'P2', 'P3', 'P4', 'P5'];
 
-  // Apple 灰度状态配色
+  // 高辨识度状态配色
   const statusPalette = [
-    { bg: '#e8e5e0', text: '#4a433c' },
-    { bg: '#e8e5e0', text: '#4a433c' },
-    { bg: '#e8e5e0', text: '#4a433c' },
-    { bg: '#e8e5e0', text: '#4a433c' },
-    { bg: '#c8d1bd', text: '#2e3829' },
-    { bg: '#e8cdb3', text: '#523624' },
+    { bg: '#dbeafe', text: '#1e40af' },
+    { bg: '#fef3c7', text: '#92400e' },
+    { bg: '#e0e7ff', text: '#3730a3' },
+    { bg: '#fce7f3', text: '#9d174d' },
+    { bg: '#d1fae5', text: '#065f46' },
+    { bg: '#f1f0ee', text: '#78716c' },
   ];
   // Apple 灰度优先级配色
   const priorityPalette = [
@@ -95,6 +332,7 @@ function initCustomStyles() {
 async function init() {
   await loadSettings();
   initCustomStyles();
+  initResizablePanels();
   await refreshData();
   showHome();
 }
@@ -164,16 +402,16 @@ function renderHome() {
   const statColors = { total: 'bg-ink-800 text-white' };
   const statLabels = { total: '总需求' };
 
-  // Apple 灰度状态配色
+  // 高辨识度状态配色（与 badge 颜色一致）
   const statusColorPalette = [
-    'bg-ink-50 text-ink-800',
-    'bg-ink-50 text-ink-800',
-    'bg-ink-50 text-ink-800',
-    'bg-ink-50 text-ink-800',
-    'bg-ink-200 text-ink-800',
-    'bg-ink-100 text-ink-500',
-    'bg-ink-50 text-ink-800',
-    'bg-ink-50 text-ink-800',
+    'bg-blue-100 text-blue-800',
+    'bg-amber-100 text-amber-800',
+    'bg-indigo-100 text-indigo-800',
+    'bg-pink-100 text-pink-800',
+    'bg-emerald-100 text-emerald-800',
+    'bg-stone-100 text-stone-500',
+    'bg-blue-100 text-blue-800',
+    'bg-amber-100 text-amber-800',
   ];
 
   (settings.statusList || []).forEach((status, idx) => {
@@ -305,28 +543,35 @@ function clearSearch() {
 
 // 初始化筛选器选项（优先级、迭代下拉）
 function initFilterOptions() {
-  const prioritySelect = document.getElementById('filter-priority');
-  const sprintSelect = document.getElementById('filter-sprint');
-
-  if (prioritySelect) {
-    const currentVal = prioritySelect.value;
-    prioritySelect.innerHTML = '<option value="">全部优先级</option>' +
-      (settings.priorityList || []).map(p => `<option value="${p}">${p}</option>`).join('');
-    prioritySelect.value = currentVal || '';
+  // 优先级筛选
+  const priorityContainer = document.getElementById('filter-priority-dd');
+  if (priorityContainer) {
+    const currentVal = cdGetValue('cd-filter-priority');
+    priorityContainer.innerHTML = cdRender({
+      id: 'cd-filter-priority',
+      value: currentVal || '',
+      options: [{value: '', label: '全部优先级'}, ...(settings.priorityList || []).map(p => ({value: p, label: p}))],
+      style: 'filter', colorType: 'priority', onChange: 'applyFilters'
+    });
   }
 
-  if (sprintSelect) {
-    const currentVal = sprintSelect.value;
-    sprintSelect.innerHTML = '<option value="">全部迭代</option>' +
-      currentData.sprints.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
-    sprintSelect.value = currentVal || '';
+  // 迭代筛选
+  const sprintContainer = document.getElementById('filter-sprint-dd');
+  if (sprintContainer) {
+    const currentVal = cdGetValue('cd-filter-sprint');
+    sprintContainer.innerHTML = cdRender({
+      id: 'cd-filter-sprint',
+      value: currentVal || '',
+      options: [{value: '', label: '全部迭代'}, ...currentData.sprints.map(s => ({value: s.name, label: s.name}))],
+      style: 'filter', colorType: '', onChange: 'applyFilters'
+    });
   }
 }
 
 // 应用筛选
 function applyFilters() {
-  activeFilters.priority = document.getElementById('filter-priority')?.value || null;
-  activeFilters.sprint = document.getElementById('filter-sprint')?.value || null;
+  activeFilters.priority = cdGetValue('cd-filter-priority') || null;
+  activeFilters.sprint = cdGetValue('cd-filter-sprint') || null;
   activeFilters.developer = document.getElementById('filter-developer')?.value.trim().toLowerCase();
   activeFilters.requester = document.getElementById('filter-requester')?.value.trim().toLowerCase();
 
@@ -341,8 +586,8 @@ function applyFilters() {
 // 清除筛选
 function clearFilters() {
   activeFilters = { status: null, priority: null, sprint: null, developer: '', requester: '' };
-  document.getElementById('filter-priority').value = '';
-  document.getElementById('filter-sprint').value = '';
+  cdSetValue('cd-filter-priority', '');
+  cdSetValue('cd-filter-sprint', '');
   document.getElementById('filter-developer').value = '';
   document.getElementById('filter-requester').value = '';
   const clearBtn = document.getElementById('clear-filter-btn');
@@ -442,16 +687,16 @@ function updateStatusViewModeButtons() {
 function renderKanban(reqs) {
   const board = document.getElementById('kanban-board');
 
-  // Apple 灰度看板配色
+  // 高辨识度看板配色
   const kanbanColorPalette = [
-    { header: 'bg-ink-50 border-ink-100', dot: 'bg-ink-800' },
-    { header: 'bg-ink-50 border-ink-100', dot: 'bg-ink-400' },
-    { header: 'bg-ink-50 border-ink-100', dot: 'bg-ink-800' },
-    { header: 'bg-ink-50 border-ink-100', dot: 'bg-ink-400' },
-    { header: 'bg-ink-200 border-ink-200', dot: 'bg-ink-800' },
-    { header: 'bg-ink-50 border-ink-100', dot: 'bg-ink-400' },
-    { header: 'bg-ink-50 border-ink-100', dot: 'bg-ink-800' },
-    { header: 'bg-ink-50 border-ink-100', dot: 'bg-ink-400' }
+    { header: 'bg-blue-50 border-blue-100', dot: 'bg-blue-500' },
+    { header: 'bg-amber-50 border-amber-100', dot: 'bg-amber-500' },
+    { header: 'bg-indigo-50 border-indigo-100', dot: 'bg-indigo-500' },
+    { header: 'bg-pink-50 border-pink-100', dot: 'bg-pink-500' },
+    { header: 'bg-emerald-50 border-emerald-100', dot: 'bg-emerald-500' },
+    { header: 'bg-stone-50 border-stone-200', dot: 'bg-stone-400' },
+    { header: 'bg-blue-50 border-blue-100', dot: 'bg-blue-500' },
+    { header: 'bg-amber-50 border-amber-100', dot: 'bg-amber-500' }
   ];
 
   board.innerHTML = (settings.statusList || []).map((status, idx) => {
@@ -474,11 +719,11 @@ function renderKanban(reqs) {
           ${statusReqs.map(req => `
             <div draggable="true"
                  ondragstart="handleKanbanDragStart(event, '${req.id}')"
-                 class="kanban-card cursor-grab relative group"
+                 class="kanban-card rounded-xl shadow-sm p-4 border border-ink-100 bg-white cursor-grab relative group"
                  onclick="showDetail('${req.id}')">
               <button onclick="event.stopPropagation(); archiveReqFromList('${req.id}')"
                       onmousedown="event.stopPropagation()"
-                      class="absolute top-2 right-2 w-6 h-6 rounded-lg bg-ink-100 text-ink-500 hover:bg-red-50 hover:text-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10"
+                      class="absolute top-2 right-2 w-6 h-6 rounded-full bg-ink-100 text-ink-500 hover:bg-red-50 hover:text-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10"
                       title="归档" draggable="false">
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 6v8h12V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 3h14v3H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
               </button>
@@ -510,36 +755,29 @@ function renderReqTable(reqs) {
   listContainer.innerHTML = reqs.map(req => `
     <tr class="border-b border-ink-50 hover:bg-ink-50 transition-colors">
       <td class="px-5 py-4">
-        <span class="font-mono text-xs text-ink-500">${req.id}</span>
+        <span class="font-mono text-sm text-ink-500">${req.id}</span>
       </td>
       <td class="px-5 py-4">
         <div class="text-sm text-ink-800 cursor-pointer hover:text-ink-600 transition-colors" onclick="showDetail('${req.id}')">${req.title}</div>
       </td>
-      <td class="px-5 py-4" onclick="event.stopPropagation()">
-        <select onchange="updateStatus('${req.id}', this.value)" onclick="event.stopPropagation()" class="text-xs border border-ink-200 rounded-lg px-3 py-1.5 bg-white text-ink-800 cursor-pointer hover:border-ink-400 transition-colors">
-          ${(settings.statusList || []).map(s => `<option value="${s}" ${req.status === s ? 'selected' : ''}>${s}</option>`).join('')}
-        </select>
+      <td class="px-5 py-4">
+        ${cdRender({ id: `cd-status-${req.id}`, value: req.status, options: (settings.statusList || []).map(s => ({value: s, label: s})), style: 'pill', colorType: 'status', onChange: `updateStatus('${req.id}')`, stopClick: true })}
       </td>
-      <td class="px-5 py-4" onclick="event.stopPropagation()">
-        <select onchange="updateSprint('${req.id}', this.value)" onclick="event.stopPropagation()" class="text-xs border border-ink-200 rounded-lg px-3 py-1.5 bg-white text-ink-800 cursor-pointer hover:border-ink-400 transition-colors">
-          <option value="">未分配</option>
-          ${currentData.sprints.filter(s => s.status === 'active').map(s => `<option value="${s.name}" ${req.sprint === s.name ? 'selected' : ''}>${s.name}</option>`).join('')}
-        </select>
+      <td class="px-5 py-4">
+        ${cdRender({ id: `cd-sprint-${req.id}`, value: req.sprint || '', options: [{value: '', label: '未分配'}, ...currentData.sprints.filter(s => s.status === 'active').map(s => ({value: s.name, label: s.name}))], style: 'pill', colorType: '', onChange: `updateSprint('${req.id}')`, stopClick: true })}
       </td>
-      <td class="px-5 py-4 text-xs text-ink-500">${(req.platform || ['web']).join(', ')}</td>
-      <td class="px-5 py-4 text-xs text-ink-500">${req.developer || '-'}</td>
-      <td class="px-5 py-4 text-xs text-ink-500">${req.requester || '-'}</td>
-      <td class="px-5 py-4 text-xs text-ink-500">${formatDate(req.created)}</td>
-      <td class="px-5 py-4 text-xs text-ink-500">${formatDate(req.due_date)}</td>
-      <td class="px-5 py-4" onclick="event.stopPropagation()">
-        <select onchange="updatePriority('${req.id}', this.value)" onclick="event.stopPropagation()" class="text-xs border border-ink-200 rounded-lg px-3 py-1.5 cursor-pointer hover:border-ink-400 transition-colors ${req.priority ? 'priority-' + req.priority : 'bg-white text-ink-800'}">
-          ${(settings.priorityList || []).map(p => `<option value="${p}" ${req.priority === p ? 'selected' : ''}>${p}</option>`).join('')}
-        </select>
+      <td class="px-5 py-4 text-sm text-ink-500">${(req.platform || ['web']).join(', ')}</td>
+      <td class="px-5 py-4 text-sm text-ink-500">${req.developer || '-'}</td>
+      <td class="px-5 py-4 text-sm text-ink-500">${req.requester || '-'}</td>
+      <td class="px-5 py-4 text-sm text-ink-500">${formatDate(req.created)}</td>
+      <td class="px-5 py-4 text-sm text-ink-500">${formatDate(req.due_date)}</td>
+      <td class="px-5 py-4">
+        ${cdRender({ id: `cd-priority-${req.id}`, value: req.priority, options: (settings.priorityList || []).map(p => ({value: p, label: p})), style: 'pill', colorType: 'priority', onChange: `updatePriority('${req.id}')`, stopClick: true })}
       </td>
       <td class="px-5 py-4" onclick="event.stopPropagation()">
         <button onclick="event.stopPropagation(); archiveReqFromList('${req.id}')"
                 onmousedown="event.stopPropagation()"
-                class="p-1.5 rounded-lg text-ink-500 hover:text-red-500 hover:bg-red-50 transition-colors"
+                class="p-1.5 rounded-full text-ink-500 hover:text-red-500 hover:bg-red-50 transition-colors"
                 title="归档" draggable="false">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 6v8h12V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 3h14v3H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         </button>
@@ -617,14 +855,24 @@ function renderDetail() {
   if (!req) return;
 
   // 头部
+  const stColors = CD_STATUS_COLORS[req.status] || {bg:'#e8e5e0',text:'#635a50',border:'#d4cfc7'};
+  const prColors = CD_PRIORITY_COLORS[req.priority] || {bg:'#d4cfc7',text:'#4a433c'};
   document.getElementById('detail-header').innerHTML = `
-    <span class="font-mono text-xs text-ink-500">${req.id}</span>
-    <span class="mx-2 text-ink-200">·</span>
-    <span class="text-sm">${req.title}</span>
-    <span class="mx-2 text-ink-200">·</span>
-    <span class="status-badge status-${req.status}">${req.status}</span>
-    <span class="mx-2 text-ink-200">·</span>
-    <span class="priority-badge priority-${req.priority}">${req.priority}</span>
+    <div class="flex items-center gap-3 flex-wrap">
+      <span class="font-mono text-xs text-ink-500">${req.id}</span>
+      <span class="text-sm text-ink-800 font-medium">${req.title}</span>
+      <div class="flex items-center gap-2">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border"
+              style="background:${stColors.bg};color:${stColors.text};border-color:${stColors.border}">
+          <span class="w-1.5 h-1.5 rounded-full" style="background:${stColors.text}"></span>
+          ${req.status}
+        </span>
+        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold"
+              style="background:${prColors.bg};color:${prColors.text}">
+          ${req.priority}
+        </span>
+      </div>
+    </div>
   `;
 
   // 左侧需求列表 — 显示与当前需求共享至少一个产品线的需求
@@ -633,15 +881,26 @@ function renderDetail() {
     const pls = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
     return pls.some(pl => currentReqPLs.includes(pl));
   });
-  document.getElementById('detail-sidebar').innerHTML = plReqs.map(r => `
-    <div onclick="showDetail('${r.id}')" class="sidebar-item ${r.id === req.id ? 'active' : ''}">
+  document.getElementById('detail-sidebar').innerHTML = plReqs.map(r => {
+    const rSt = CD_STATUS_COLORS[r.status] || {bg:'#e8e5e0',text:'#635a50',border:'#d4cfc7'};
+    const rPr = CD_PRIORITY_COLORS[r.priority] || {bg:'#d4cfc7',text:'#4a433c'};
+    return `
+    <div onclick="showDetail('${r.id}')" class="sidebar-item px-4 py-3 ${r.id === req.id ? 'active' : ''}">
       <div class="text-sm text-ink-800">${r.title}</div>
-      <div class="flex items-center gap-2 mt-1">
-        <span class="font-mono text-xs text-ink-500">${r.id}</span>
-        <span class="status-badge status-${r.status}">${r.status}</span>
+      <div class="flex items-center gap-2 mt-1.5">
+        <span class="font-mono text-xs text-ink-400">${r.id}</span>
+        <span class="inline-flex items-center gap-1 px-2 py-px rounded-full text-xs font-medium border"
+              style="background:${rSt.bg};color:${rSt.text};border-color:${rSt.border}">
+          <span class="w-1 h-1 rounded-full" style="background:${rSt.text}"></span>
+          ${r.status}
+        </span>
+        <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold"
+              style="background:${rPr.bg};color:${rPr.text}">
+          ${r.priority}
+        </span>
       </div>
     </div>
-  `).join('');
+  `}).join('');
 
   // 平台切换
   const platforms = req.platform || ['web'];
@@ -649,7 +908,7 @@ function renderDetail() {
 
   if (platforms.length > 1) {
     platformTabs.innerHTML = platforms.map(p => `
-      <button onclick="switchPlatform('${p}')" class="px-4 py-1.5 rounded-lg text-sm transition-all ${currentPlatform === p ? 'bg-ink-800 text-white' : 'text-ink-800 hover:bg-ink-50'}">
+      <button onclick="switchPlatform('${p}')" class="px-4 py-1.5 rounded-full text-sm transition-all ${currentPlatform === p ? 'bg-ink-800 text-white' : 'text-ink-800 hover:bg-ink-50'}">
         ${p === 'web' ? 'Web端' : '移动端'}
       </button>
     `).join('');
@@ -675,21 +934,27 @@ function loadPrototype(req) {
 
   // 检查原型文件是否存在
   if (!req.hasPrototype || !req.hasPrototype[protoKey]) {
-    // 无原型时，直接在原型区域展示 PRD 文档
+    // 无原型时，直接在原型区域展示 PRD 文档（使用智能渲染引擎）
     frame.src = 'about:blank';
     
-    // 获取文档内容
-    const docContent = req.body || '';
+    // 解析 YAML + 渲染增强文档
+    const rawBody = req.body || '';
+    const { meta, body } = parseYamlFrontMatter(rawBody);
+    const hasYaml = Object.keys(meta).length > 0;
+    const processedHtml = marked.parse(body || '*暂无文档内容*')
+      .replace(/<a href="([^"]+)"/g, (m, href) => {
+        if (href.startsWith('http') || href.startsWith('//')) {
+          return `<a href="${href}" target="_blank" rel="noopener"`;
+        }
+        return m;
+      });
     
-    // 渲染 Markdown 为 HTML
     container.innerHTML = `
       <div class="w-full h-full bg-white rounded-2xl shadow-lg overflow-hidden flex flex-col">
-        <div class="px-6 py-4 bg-ink-50 border-b border-ink-100">
-          <span class="text-sm font-medium text-ink-600">需求文档</span>
-        </div>
         <div class="flex-1 overflow-y-auto p-6">
+          ${hasYaml ? renderDocMetaBar(meta) : ''}
           <div class="prose prose-sm max-w-none text-ink-700">
-            ${marked.parse(docContent || '*暂无文档内容*')}
+            ${processedHtml}
           </div>
         </div>
       </div>
@@ -697,14 +962,14 @@ function loadPrototype(req) {
     
     // 设置容器尺寸
     if (platform === 'mobile') {
-      container.style.width = '375px';
-      container.style.height = '667px';
-      container.style.maxWidth = '375px';
+      container.style.width = '520px';
+      container.style.height = '1126px';
+      container.style.maxWidth = '520px';
     } else {
       container.style.width = '100%';
       container.style.height = '100%';
-      container.style.maxWidth = docPanelOpen ? '680px' : '960px';
-      container.style.maxHeight = '800px';
+      container.style.maxWidth = 'none';
+      container.style.maxHeight = 'none';
     }
     return;
   }
@@ -712,32 +977,157 @@ function loadPrototype(req) {
   const primaryPL = Array.isArray(req.productLine) ? req.productLine[0] : req.productLine;
   const protoFile = `/products/${encodeURIComponent(primaryPL)}/${encodeURIComponent(req.folderName)}/prototype-${platform}.html`;
   frame.src = protoFile;
-  
+
   // 有原型时，恢复 iframe 结构
   container.innerHTML = `<iframe id="prototype-frame" class="w-full h-full border-0"></iframe>`;
-  
+
   // 重新获取 iframe 引用
   const newFrame = document.getElementById('prototype-frame');
   newFrame.src = protoFile;
 
   if (platform === 'mobile') {
-    container.style.width = '375px';
-    container.style.height = '667px';
-    container.style.maxWidth = '375px';
+    container.style.width = '520px';
+    container.style.height = '1126px';
+    container.style.maxWidth = '520px';
   } else {
     container.style.width = '100%';
     container.style.height = '100%';
-    container.style.maxWidth = docPanelOpen ? '680px' : '960px';
-    container.style.maxHeight = '800px';
+    container.style.maxWidth = 'none';
+    container.style.maxHeight = 'none';
   }
 }
 
-// 加载需求文档
+// 解析 YAML front matter（简易解析器，支持 string/array/date）
+function parseYamlFrontMatter(text) {
+  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return { meta: {}, body: text };
+  const yaml = match[1];
+  const body = text.slice(match[0].length).trimStart();
+  const meta = {};
+  let key = null;
+  let isArray = false;
+  let arrItems = [];
+
+  for (const line of yaml.split('\n')) {
+    if (isArray) {
+      if (line.match(/^\s+-\s+(.+)/)) {
+        arrItems.push(RegExp.$1.trim().replace(/^['"]|['"]$/g, ''));
+        continue;
+      }
+      // 数组结束
+      meta[key] = arrItems;
+      isArray = false;
+      key = null;
+      arrItems = [];
+    }
+    const kvMatch = line.match(/^(\w[\w_]*):\s*(.*)/);
+    if (kvMatch) {
+      if (key && isArray) { meta[key] = arrItems; isArray = false; arrItems = []; }
+      key = kvMatch[1];
+      const val = kvMatch[2].trim();
+      if (val === '') {
+        // 可能是数组，看下一行
+        isArray = true;
+        arrItems = [];
+      } else {
+        meta[key] = val.replace(/^['"]|['"]$/g, '');
+      }
+    }
+  }
+  if (key && isArray) meta[key] = arrItems;
+  return { meta, body };
+}
+
+// 渲染 YAML 元信息栏
+function renderDocMetaBar(meta) {
+  const stColors = CD_STATUS_COLORS[meta.status] || {bg:'#e8e5e0',text:'#635a50',border:'#d4cfc7'};
+  const prColors = CD_PRIORITY_COLORS[meta.priority] || {bg:'#d4cfc7',text:'#4a433c'};
+
+  // 状态 badge
+  const statusBadge = meta.status
+    ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border" style="background:${stColors.bg};color:${stColors.text};border-color:${stColors.border}"><span class="w-1.5 h-1.5 rounded-full" style="background:${stColors.text}"></span>${meta.status}</span>`
+    : '';
+  // 优先级 badge
+  const priorityBadge = meta.priority
+    ? `<span class="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-bold" style="background:${prColors.bg};color:${prColors.text}">${meta.priority}</span>`
+    : '';
+  // 标签
+  const tags = Array.isArray(meta.tags) ? meta.tags : (meta.tags ? [meta.tags] : []);
+  const tagBadges = tags.map(t => `<span class="meta-tag">${t}</span>`).join('');
+  // 产品线
+  const pls = Array.isArray(meta.product_line) ? meta.product_line : (meta.product_line ? [meta.product_line] : []);
+
+  return `
+    <div class="doc-meta-bar">
+      <div class="meta-grid">
+        <div class="meta-item">
+          <span class="meta-label">ID</span>
+          <span class="meta-value font-mono text-xs">${meta.id || '-'}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">状态</span>
+          ${statusBadge}
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">优先级</span>
+          ${priorityBadge}
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">迭代</span>
+          <span class="meta-value">${meta.sprint || '未分配'}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">创建</span>
+          <span class="meta-value text-xs">${meta.created ? meta.created.slice(0,10) : '-'}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">更新</span>
+          <span class="meta-value text-xs">${meta.updated ? meta.updated.slice(0,10) : '-'}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">负责人</span>
+          <span class="meta-value">${meta.developer || '-'}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">提出人</span>
+          <span class="meta-value">${meta.requester || '-'}</span>
+        </div>
+        ${pls.length ? `<div class="meta-item" style="grid-column: span 2"><span class="meta-label">产品线</span><span class="meta-value">${pls.join(' / ')}</span></div>` : ''}
+        ${tags.length ? `<div class="meta-item" style="grid-column: span 2"><span class="meta-label">标签</span><div class="meta-tags">${tagBadges}</div></div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+// 加载需求文档（智能渲染引擎）
 function loadDoc(req) {
   const docContent = document.getElementById('doc-content');
   const docEditor = document.getElementById('doc-editor');
-  docContent.innerHTML = marked.parse(req.body || '');
-  docEditor.value = req.body || '';
+  const rawBody = req.body || '';
+
+  // 编辑器保持原始 md 文本
+  docEditor.value = rawBody;
+
+  // 渲染模式：解析 YAML + 增强排版
+  const { meta, body } = parseYamlFrontMatter(rawBody);
+  const hasYaml = Object.keys(meta).length > 0;
+
+  // 仅渲染 YAML 以下的内容
+  const mdHtml = marked.parse(body || '*暂无文档内容*');
+
+  // 后处理：表格加 class、外部链接新窗口
+  const processedHtml = mdHtml
+    .replace(/<table>/g, '<table>')
+    .replace(/<a href="([^"]+)"/g, (m, href) => {
+      if (href.startsWith('http') || href.startsWith('//')) {
+        return `<a href="${href}" target="_blank" rel="noopener"`;
+      }
+      return m;
+    });
+
+  // 组合：元信息栏 + 正文
+  docContent.innerHTML = (hasYaml ? renderDocMetaBar(meta) : '') +
+    `<div class="prose prose-sm max-w-none text-ink-700">${processedHtml}</div>`;
 
   // 非编辑模式下确保正确显示状态
   if (!docEditMode) {
@@ -978,9 +1368,11 @@ if (typeof document !== 'undefined') {
 function toggleDocPanel() {
   docPanelOpen = !docPanelOpen;
   const panel = document.getElementById('doc-panel');
+  const resizer = document.getElementById('doc-resizer');
   const btn = document.getElementById('doc-toggle-btn');
 
   panel.classList.toggle('hidden', !docPanelOpen);
+  resizer.style.display = docPanelOpen ? '' : 'none';
 
   if (docPanelOpen) {
     btn.classList.add('bg-ink-800', 'text-white', 'border-ink-400');
@@ -989,8 +1381,6 @@ function toggleDocPanel() {
     btn.classList.remove('bg-ink-800', 'text-white', 'border-ink-400');
     btn.classList.add('text-ink-600', 'border-ink-400');
   }
-
-  if (currentReqId) renderDetail();
 }
 
 // 更新状态
@@ -1197,12 +1587,12 @@ function renderArchivePage() {
                 <tbody>
                   ${reqs.map(req => `
                     <tr class="cursor-pointer hover:bg-ink-50 transition-colors" onclick="showDetail('${req.id}', 'archive')">
-                      <td><span class="font-mono text-xs text-ink-500">${req.id}</span></td>
+                      <td><span class="font-mono text-sm text-ink-500">${req.id}</span></td>
                       <td><span class="text-sm text-ink-800">${req.title}</span></td>
                       <td><span class="status-badge status-${req.status}">${req.status}</span></td>
                       <td><span class="priority-badge priority-${req.priority}">${req.priority}</span></td>
-                      <td class="text-xs text-ink-500">${req.developer || '-'}</td>
-                      <td class="text-xs text-ink-500">${formatDate(req.updated)}</td>
+                      <td class="text-sm text-ink-500">${req.developer || '-'}</td>
+                      <td class="text-sm text-ink-500">${formatDate(req.updated)}</td>
                     </tr>
                   `).join('')}
                 </tbody>
@@ -1722,14 +2112,18 @@ function showCreateReqModal() {
   `).join('');
 
   // 动态填充优先级下拉列表
-  const prioritySelect = document.getElementById('new-req-priority');
+  const priorityContainer = document.getElementById('new-req-priority-dd');
   const priorityList = settings.priorityList || ['P0', 'P1', 'P2', 'P3', 'P4', 'P5'];
   const priorityLabels = { P0: '最高', P1: '高', P2: '中', P3: '低', P4: '很低', P5: '最低' };
-  prioritySelect.innerHTML = priorityList.map(p => {
-    const label = priorityLabels[p] || '';
-    const text = label ? `${p} - ${label}` : p;
-    return `<option value="${p}" ${p === 'P2' ? 'selected' : ''}>${text}</option>`;
-  }).join('');
+  priorityContainer.innerHTML = cdRender({
+    id: 'cd-new-req-priority',
+    value: 'P2',
+    options: priorityList.map(p => {
+      const label = priorityLabels[p] || '';
+      return {value: p, label: label ? `${p} - ${label}` : p};
+    }),
+    style: 'form', colorType: 'priority', onChange: ''
+  });
 
   // 清空输入框和其他字段
   document.getElementById('new-req-product-line-input').value = '';
@@ -1796,7 +2190,7 @@ function closeCreateReqModal() {
 
 async function createRequirement() {
   const title = document.getElementById('new-req-title').value.trim();
-  const priority = document.getElementById('new-req-priority').value;
+  const priority = cdGetValue('cd-new-req-priority');
   const dueDate = document.getElementById('new-req-due-date').value;
   const developer = document.getElementById('new-req-developer').value.trim();
   const requester = document.getElementById('new-req-requester').value.trim();
@@ -2010,7 +2404,7 @@ function selectSprint(sprintName) {
 // 渲染右侧看板或列表
 function renderSprintBoard() {
   // 填充产品线筛选下拉
-  const productLineFilter = document.getElementById('sprint-product-line-filter');
+  const productLineFilterContainer = document.getElementById('sprint-product-line-filter-dd');
   const settingsProductLines = settings.productLines || [];
   const allReqs = currentSprint === null
     ? currentData.requirements.filter(r => !r.sprint)
@@ -2020,19 +2414,24 @@ function renderSprintBoard() {
   );
   const allProductLines = [...new Set([...settingsProductLines, ...reqProductLines])];
 
-  const currentFilter = productLineFilter.value;
-  productLineFilter.innerHTML = '<option value="">全部产品线</option>' +
-    allProductLines.map(pl => `<option value="${pl}" ${pl === currentFilter ? 'selected' : ''}>${pl}</option>`).join('');
+  const currentFilter = cdGetValue('cd-sprint-pl-filter');
+  productLineFilterContainer.innerHTML = cdRender({
+    id: 'cd-sprint-pl-filter',
+    value: currentFilter || '',
+    options: [{value: '', label: '全部产品线'}, ...allProductLines.map(pl => ({value: pl, label: pl}))],
+    style: 'filter', colorType: '', onChange: 'renderSprintView'
+  });
 
   // 筛选需求
   let sprintReqs = currentSprint === null
     ? currentData.requirements.filter(r => !r.sprint)
     : currentData.requirements.filter(r => r.sprint === currentSprint);
   
-  if (productLineFilter.value) {
+  const plFilter = cdGetValue('cd-sprint-pl-filter');
+  if (plFilter) {
     sprintReqs = sprintReqs.filter(r => {
       const pls = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
-      return pls.includes(productLineFilter.value);
+      return pls.includes(plFilter);
     });
   }
 
@@ -2052,16 +2451,16 @@ function renderSprintBoard() {
 function renderSprintKanbanBoard(reqs) {
   const board = document.getElementById('sprint-kanban-board');
 
-  // Apple 灰度看板配色
+  // 高辨识度看板配色
   const kanbanColorPalette = [
-    { header: 'bg-ink-50 border-ink-100', dot: 'bg-ink-800' },
-    { header: 'bg-ink-50 border-ink-100', dot: 'bg-ink-400' },
-    { header: 'bg-ink-50 border-ink-100', dot: 'bg-ink-800' },
-    { header: 'bg-ink-50 border-ink-100', dot: 'bg-ink-400' },
-    { header: 'bg-ink-200 border-ink-200', dot: 'bg-ink-800' },
-    { header: 'bg-ink-50 border-ink-100', dot: 'bg-ink-400' },
-    { header: 'bg-ink-50 border-ink-100', dot: 'bg-ink-800' },
-    { header: 'bg-ink-50 border-ink-100', dot: 'bg-ink-400' }
+    { header: 'bg-blue-50 border-blue-100', dot: 'bg-blue-500' },
+    { header: 'bg-amber-50 border-amber-100', dot: 'bg-amber-500' },
+    { header: 'bg-indigo-50 border-indigo-100', dot: 'bg-indigo-500' },
+    { header: 'bg-pink-50 border-pink-100', dot: 'bg-pink-500' },
+    { header: 'bg-emerald-50 border-emerald-100', dot: 'bg-emerald-500' },
+    { header: 'bg-stone-50 border-stone-200', dot: 'bg-stone-400' },
+    { header: 'bg-blue-50 border-blue-100', dot: 'bg-blue-500' },
+    { header: 'bg-amber-50 border-amber-100', dot: 'bg-amber-500' }
   ];
 
   board.innerHTML = (settings.statusList || []).map((status, idx) => {
@@ -2084,11 +2483,11 @@ function renderSprintKanbanBoard(reqs) {
           ${statusReqs.map(req => `
             <div draggable="true"
                  ondragstart="handleKanbanDragStart(event, '${req.id}')"
-                 class="kanban-card cursor-grab relative group"
+                 class="kanban-card rounded-xl shadow-sm p-4 border border-ink-100 bg-white cursor-grab relative group"
                  onclick="showDetail('${req.id}', 'sprint')">
               <button onclick="event.stopPropagation(); archiveReqFromList('${req.id}')"
                       onmousedown="event.stopPropagation()"
-                      class="absolute top-2 right-2 w-6 h-6 rounded-lg bg-ink-100 text-ink-500 hover:bg-red-50 hover:text-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10"
+                      class="absolute top-2 right-2 w-6 h-6 rounded-full bg-ink-100 text-ink-500 hover:bg-red-50 hover:text-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10"
                       title="归档" draggable="false">
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 6v8h12V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 3h14v3H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
               </button>
@@ -2125,25 +2524,21 @@ function renderSprintReqTable(reqs) {
     return `
       <tr class="border-b border-ink-50 hover:bg-ink-50 transition-colors">
         <td class="px-5 py-4">
-          <span class="font-mono text-xs text-ink-500">${req.id}</span>
+          <span class="font-mono text-sm text-ink-500">${req.id}</span>
         </td>
         <td class="px-5 py-4">
           <div class="text-sm text-ink-800 cursor-pointer hover:text-ink-600 transition-colors" onclick="showDetail('${req.id}', 'sprint')">${req.title}</div>
         </td>
-        <td class="px-5 py-4" onclick="event.stopPropagation()">
-          <select onchange="updateStatus('${req.id}', this.value)" class="text-xs border border-ink-200 rounded-lg px-3 py-1.5 bg-white text-ink-800 cursor-pointer hover:border-ink-400 transition-colors">
-            ${(settings.statusList || []).map(s => `<option value="${s}" ${req.status === s ? 'selected' : ''}>${s}</option>`).join('')}
-          </select>
+        <td class="px-5 py-4">
+          ${cdRender({ id: `cd-sp-status-${req.id}`, value: req.status, options: (settings.statusList || []).map(s => ({value: s, label: s})), style: 'pill', colorType: 'status', onChange: `updateStatus('${req.id}')`, stopClick: true })}
         </td>
-        <td class="px-5 py-4 text-xs text-ink-500">${pls.join(', ')}</td>
-        <td class="px-5 py-4" onclick="event.stopPropagation()">
-          <select onchange="updatePriority('${req.id}', this.value)" class="text-xs border border-ink-200 rounded-lg px-3 py-1.5 cursor-pointer hover:border-ink-400 transition-colors ${req.priority ? 'priority-' + req.priority : 'bg-white text-ink-800'}">
-            ${(settings.priorityList || []).map(p => `<option value="${p}" ${req.priority === p ? 'selected' : ''}>${p}</option>`).join('')}
-          </select>
+        <td class="px-5 py-4 text-sm text-ink-500">${pls.join(', ')}</td>
+        <td class="px-5 py-4">
+          ${cdRender({ id: `cd-sp-priority-${req.id}`, value: req.priority, options: (settings.priorityList || []).map(p => ({value: p, label: p})), style: 'pill', colorType: 'priority', onChange: `updatePriority('${req.id}')`, stopClick: true })}
         </td>
         <td class="px-5 py-4" onclick="event.stopPropagation()">
           <button onclick="event.stopPropagation(); archiveReqFromList('${req.id}')"
-                  class="p-1.5 rounded-lg text-ink-500 hover:text-red-500 hover:bg-red-50 transition-colors"
+                  class="p-1.5 rounded-full text-ink-500 hover:text-red-500 hover:bg-red-50 transition-colors"
                   title="归档" draggable="false">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 6v8h12V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 3h14v3H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
           </button>
@@ -2235,9 +2630,13 @@ function showDraftsPage() {
   
   // 更新产品线筛选下拉
   const productLines = getAllProductLines();
-  document.getElementById('draft-product-line-filter').innerHTML = 
-    '<option value="">全部产品线</option>' +
-    productLines.map(pl => `<option value="${pl}">${pl}</option>`).join('');
+  const currentPL = cdGetValue('cd-draft-pl-filter');
+  document.getElementById('draft-product-line-filter-dd').innerHTML = cdRender({
+    id: 'cd-draft-pl-filter',
+    value: currentPL || '',
+    options: [{value: '', label: '全部产品线'}, ...productLines.map(pl => ({value: pl, label: pl}))],
+    style: 'filter', colorType: '', onChange: 'renderDraftsList'
+  });
   
   // 初始化状态筛选标签
   updateStatusFilterTabs();
@@ -2255,9 +2654,9 @@ function setDraftStatusFilter(status) {
 function updateStatusFilterTabs() {
   document.querySelectorAll('.status-tab').forEach(btn => {
     if (btn.dataset.status === currentDraftStatusFilter) {
-      btn.className = 'status-tab px-3 py-1.5 rounded-lg text-sm font-medium bg-ink-800 text-white';
+      btn.className = 'status-tab px-3 py-1.5 rounded-full text-sm font-medium bg-ink-800 text-white';
     } else {
-      btn.className = 'status-tab px-3 py-1.5 rounded-lg text-sm font-medium text-ink-600 hover:bg-ink-100';
+      btn.className = 'status-tab px-3 py-1.5 rounded-full text-sm font-medium text-ink-600 hover:bg-ink-100';
     }
   });
 }
@@ -2265,7 +2664,7 @@ function updateStatusFilterTabs() {
 // 渲染需求池列表
 function renderDraftsList() {
   const container = document.getElementById('drafts-list');
-  const productLineFilter = document.getElementById('draft-product-line-filter').value;
+  const productLineFilter = cdGetValue('cd-draft-pl-filter');
   const searchQuery = document.getElementById('draft-search').value.toLowerCase();
   
   // 筛选草稿（排除已搁置，已搁置在单独区域显示）
@@ -2316,6 +2715,9 @@ function renderDraftsList() {
       .map(s => `<option value="${s}" ${draft.status === s ? 'selected' : ''}>${statusLabels[s]}</option>`)
       .join('');
     
+    const statusOptsArr = ['draft', 'in_progress', 'archived']
+      .map(s => ({value: s, label: statusLabels[s]}));
+    
     const productLines = getAllProductLines();
     const productLineCheckboxes = productLines.map(pl => {
       const checked = Array.isArray(draft.product_line) && draft.product_line.includes(pl) ? 'checked' : '';
@@ -2336,16 +2738,10 @@ function renderDraftsList() {
           </div>
         </td>
         <td class="px-4 py-3">
-          <select onchange="updateDraftStatus('${draft.id}', this.value)" class="text-xs border border-ink-200 rounded px-2 py-1 bg-white focus:outline-none focus:border-ink-400">
-            ${statusOptions}
-          </select>
+          ${cdRender({ id: `cd-draft-status-${draft.id}`, value: draft.status, options: statusOptsArr, style: 'pill', colorType: 'status', onChange: `updateDraftStatus('${draft.id}')`, stopClick: true, extraClass: 'text-xs' })}
         </td>
         <td class="px-4 py-3">
-          <select onchange="updateDraftField('${draft.id}', 'priority', this.value)" class="text-xs border border-ink-200 rounded px-2 py-1 bg-white focus:outline-none focus:border-ink-400">
-            <option value="low" ${draft.priority === 'low' ? 'selected' : ''}>低</option>
-            <option value="medium" ${draft.priority === 'medium' ? 'selected' : ''}>中</option>
-            <option value="high" ${draft.priority === 'high' ? 'selected' : ''}>高</option>
-          </select>
+          ${cdRender({ id: `cd-draft-priority-${draft.id}`, value: draft.priority, options: [{value:'low',label:'低'},{value:'medium',label:'中'},{value:'high',label:'高'}], style: 'pill', colorType: 'priority', onChange: `updateDraftField('${draft.id}','priority')`, stopClick: true, extraClass: 'text-xs' })}
         </td>
         <td class="px-4 py-3">
           <div class="flex flex-wrap gap-1 text-xs">
@@ -2406,11 +2802,7 @@ function renderArchivedDrafts() {
         <span class="text-sm text-ink-700 truncate max-w-xs">${draft.title || '无标题'}</span>
       </td>
       <td class="px-4 py-2">
-        <select onchange="updateDraftStatus('${draft.id}', this.value)" class="text-xs border border-ink-200 rounded px-2 py-1 bg-white focus:outline-none focus:border-ink-400">
-          <option value="draft" ${draft.status === 'draft' ? 'selected' : ''}>草稿</option>
-          <option value="in_progress" ${draft.status === 'in_progress' ? 'selected' : ''}>进行中</option>
-          <option value="archived" ${draft.status === 'archived' ? 'selected' : ''} selected>已搁置</option>
-        </select>
+        ${cdRender({ id: `cd-arc-status-${draft.id}`, value: draft.status, options: [{value:'draft',label:'草稿'},{value:'in_progress',label:'进行中'},{value:'archived',label:'已搁置'}], style: 'pill', colorType: 'status', onChange: `updateDraftStatus('${draft.id}')`, stopClick: true, extraClass: 'text-xs' })}
       </td>
       <td class="px-4 py-2">
         <div class="flex flex-wrap gap-1 text-xs">
@@ -2559,17 +2951,29 @@ function showDraftModal(draftId = null) {
     document.getElementById('draft-id').value = editingDraft.id;
     document.getElementById('draft-title-input').value = editingDraft.title || '';
     document.getElementById('draft-description-input').value = editingDraft.description || '';
-    document.getElementById('draft-priority-input').value = editingDraft.priority || 'medium';
     document.getElementById('draft-source-input').value = editingDraft.source || '';
     document.getElementById('draft-tags-input').value = (editingDraft.tags || []).join(', ');
+    // 渲染优先级下拉
+    document.getElementById('draft-priority-input-dd').innerHTML = cdRender({
+      id: 'cd-draft-priority-input',
+      value: editingDraft.priority || 'medium',
+      options: [{value:'low',label:'低'},{value:'medium',label:'中'},{value:'high',label:'高'}],
+      style: 'form', colorType: '', onChange: ''
+    });
   } else {
     titleEl.textContent = '新建草稿';
     document.getElementById('draft-id').value = '';
     document.getElementById('draft-title-input').value = '';
     document.getElementById('draft-description-input').value = '';
-    document.getElementById('draft-priority-input').value = 'medium';
     document.getElementById('draft-source-input').value = '';
     document.getElementById('draft-tags-input').value = '';
+    // 渲染优先级下拉
+    document.getElementById('draft-priority-input-dd').innerHTML = cdRender({
+      id: 'cd-draft-priority-input',
+      value: 'medium',
+      options: [{value:'low',label:'低'},{value:'medium',label:'中'},{value:'high',label:'高'}],
+      style: 'form', colorType: '', onChange: ''
+    });
   }
   
   // 渲染产品线复选框
@@ -2596,7 +3000,7 @@ async function saveDraft() {
   const id = document.getElementById('draft-id').value;
   const title = document.getElementById('draft-title-input').value.trim();
   const description = document.getElementById('draft-description-input').value.trim();
-  const priority = document.getElementById('draft-priority-input').value;
+  const priority = cdGetValue('cd-draft-priority-input');
   const source = document.getElementById('draft-source-input').value.trim();
   const tags = document.getElementById('draft-tags-input').value.split(',').map(t => t.trim()).filter(Boolean);
   const product_line = Array.from(document.querySelectorAll('#draft-product-lines .draft-pl-cb:checked')).map(cb => cb.value);

@@ -36,3 +36,10 @@ Thumbs.db
 
 # Drafts (local data, not tracked)
 drafts/
+
+# Local data (products/archive contain user requirement data)
+products/
+archive/
+
+# Project docs (local copies)
+PM-Craft-全量需求文档-*.md
