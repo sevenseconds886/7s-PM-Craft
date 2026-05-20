@@ -781,6 +781,38 @@ app.post('/api/requirements/:id/sprint', (req, res) => {
   }
 });
 
+// API：修改需求预计上线时间
+app.post('/api/requirements/:id/due_date', (req, res) => {
+  try {
+    const { due_date } = req.body;
+    const requirements = scanRequirements();
+    const requirement = requirements.find(r => r.id === req.params.id);
+
+    if (!requirement) {
+      return res.status(404).json({ error: '需求不存在' });
+    }
+
+    const content = fs.readFileSync(requirement.bodyPath, 'utf-8');
+    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+
+    if (match) {
+      const frontMatter = yaml.load(match[1]);
+      frontMatter.due_date = due_date;
+      frontMatter.updated = new Date().toISOString().split('T')[0];
+
+      const newContent = `---\n${yaml.dump(frontMatter)}---\n${match[2]}`;
+      fs.writeFileSync(requirement.bodyPath, newContent);
+
+      res.json({ success: true, id: req.params.id, due_date });
+    } else {
+      res.status(500).json({ error: '文件格式错误' });
+    }
+  } catch (err) {
+    console.error('修改预计上线时间失败:', err);
+    res.status(500).json({ error: '修改失败: ' + err.message });
+  }
+});
+
 // API：修改需求文档内容（自动保存历史版本）
 app.post('/api/requirements/:id/content', (req, res) => {
   try {

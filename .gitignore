@@ -43,3 +43,7 @@ archive/
 
 # Project docs (local copies)
 PM-Craft-全量需求文档-*.md
+
+# Screenshots & debug images
+screenshots/
+*.png

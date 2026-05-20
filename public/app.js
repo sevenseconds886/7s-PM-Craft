@@ -126,7 +126,7 @@ function cdRender(cfg) {
     return `<div class="cdropdown-option ${sel}" data-value="${o.value}">${badgeHtml || o.label}</div>`;
   }).join('');
 
-  const stopClickAttr = cfg.stopClick ? 'onclick="event.stopPropagation()"' : '';
+  const stopClickAttr = cfg.stopClick ? 'data-stop-click="true"' : '';
 
   return `<div class="cdropdown ${styleCls} ${colorCls} ${cfg.extraClass || ''}" id="${uid}" data-onchange="${cfg.onChange || ''}" data-cd-value="${cfg.value || ''}" ${stopClickAttr}>
     <div class="cdropdown-trigger" onclick="cdToggle('${uid}')">
@@ -212,6 +212,17 @@ document.addEventListener('click', (e) => {
   cdSelect(dropdown.id, opt.dataset.value);
 });
 
+// 阻止标记了 data-stop-click 的元素点击冒泡（用于行内编辑场景，但不阻止 cdropdown-option 点击冒泡）
+document.addEventListener('click', (e) => {
+  // 如果点击的是 cdropdown-option，永远不阻止冒泡（让事件委托处理器正常工作）
+  if (e.target.closest('.cdropdown-option')) return;
+  // 对于标记了 data-stop-click 的元素（dropdown / td），阻止冒泡
+  const stopEl = e.target.closest('[data-stop-click="true"]');
+  if (stopEl) {
+    e.stopPropagation();
+  }
+});
+
 // 获取 dropdown 当前值
 function cdGetValue(uid) {
   const el = document.getElementById(uid);
@@ -258,18 +269,35 @@ function cdUpdateOptions(uid, options, selectedValue) {
   if (selectedValue !== undefined) cdSetValue(uid, selectedValue);
 }
 
-// Toast 提示 - Apple 风格
+// Toast 提示 - Apple 陶土色系风格
 function showToast(message, type = 'success') {
+  // 确保 toast 容器存在
+  let container = document.querySelector('.toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'toast-container';
+    document.body.appendChild(container);
+  }
+
+  const icons = {
+    success: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.5L4.5 8.5L9.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    error: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+    info: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M6 5v3M6 3.5v.01" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+  };
+
   const toast = document.createElement('div');
-  const bgClass = type === 'success' ? 'bg-ink-800' : type === 'error' ? 'bg-red-500' : 'bg-ink-800';
-  toast.className = `toast ${bgClass} fixed bottom-6 right-6 z-50`;
-  toast.textContent = message;
-  document.body.appendChild(toast);
+  toast.className = `toast toast-${type}`;
+  toast.innerHTML = `
+    <div class="toast-bar"></div>
+    <div class="toast-icon">${icons[type] || icons.info}</div>
+    <div class="toast-msg">${message}</div>
+  `;
+  container.appendChild(toast);
+
   setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transition = 'opacity 0.3s';
-    setTimeout(() => toast.remove(), 300);
-  }, 2500);
+    toast.classList.add('toast-exit');
+    setTimeout(() => toast.remove(), 260);
+  }, 2800);
 }
 
 // 初始化自定义状态/优先级样式（Apple 灰度风格）
@@ -781,7 +809,9 @@ function renderReqTable(reqs) {
       <td class="px-5 py-4 text-sm text-ink-500">${req.developer || '-'}</td>
       <td class="px-5 py-4 text-sm text-ink-500">${req.requester || '-'}</td>
       <td class="px-5 py-4 text-sm text-ink-500">${formatDate(req.created)}</td>
-      <td class="px-5 py-4 text-sm text-ink-500">${formatDate(req.due_date)}</td>
+      <td class="px-5 py-4" data-stop-click="true">
+        <span class="text-sm text-ink-500 cursor-pointer hover:text-ink-700 hover:bg-ink-50 rounded px-2 py-1 transition-colors" onclick="editDueDate(this, '${req.id}', '${req.due_date || ''}')">${formatDate(req.due_date)}</span>
+      </td>
       <td class="px-5 py-4">
         ${cdRender({ id: `cd-priority-${req.id}`, value: req.priority, options: (settings.priorityList || []).map(p => ({value: p, label: p})), style: 'pill', colorType: 'priority', onChange: `updatePriority('${req.id}')`, stopClick: true })}
       </td>
@@ -1436,6 +1466,51 @@ async function updateSprint(id, sprint) {
   }
 }
 
+// 更新预计上线时间
+async function updateDueDate(id, due_date) {
+  try {
+    await fetch(`/api/requirements/${id}/due_date`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ due_date })
+    });
+    await refreshData();
+    showToast('预计上线时间已更新', 'success');
+  } catch (e) {
+    console.error('更新预计上线时间失败:', e);
+    showToast('更新失败', 'error');
+  }
+}
+
+// 行内编辑预计上线时间
+function editDueDate(el, reqId, currentValue) {
+  const input = document.createElement('input');
+  input.type = 'date';
+  input.value = currentValue || '';
+  input.className = 'text-sm px-2 py-1 border border-ink-200 rounded-lg outline-none focus:border-ink-400 bg-white text-ink-700';
+
+  el.replaceWith(input);
+  input.focus();
+
+  const save = async () => {
+    const newDate = input.value;
+    if (newDate !== (currentValue || '')) {
+      await updateDueDate(reqId, newDate);
+    } else {
+      await refreshData();
+    }
+  };
+
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      input.blur();
+    } else if (e.key === 'Escape') {
+      refreshData();
+    }
+  });
+}
+
 // 归档需求
 async function archiveReq() {
   if (!confirm('确定要归档这个需求吗？')) return;
@@ -1539,18 +1614,18 @@ function renderArchivePage() {
   }
 
   container.innerHTML = Object.entries(groups).map(([pl, group]) => `
-    <div class="bg-white rounded-2xl border border-ink-100 overflow-hidden shadow-sm mb-4">
+    <div class="bg-white rounded-2xl border border-ink-100 overflow-hidden shadow-sm mb-8">
       <!-- 产品线折叠头 -->
-      <div class="px-6 py-4 bg-ink-50 border-b border-ink-100 cursor-pointer hover:bg-ink-100 transition-colors"
+      <div class="px-8 py-5 bg-ink-50 border-b border-ink-100 cursor-pointer hover:bg-ink-100 transition-colors"
            onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('.pl-chevron').classList.toggle('rotate-180')">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-3">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" class="text-ink-500">
+            <svg width="20" height="20" viewBox="0 0 18 18" fill="none" class="text-ink-500">
               <rect x="2" y="4" width="14" height="12" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
               <path d="M2 8h14" stroke="currentColor" stroke-width="1.5"/>
               <path d="M6 2h6v2H6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
             </svg>
-            <h3 class="font-display text-base text-ink-800">${pl}</h3>
+            <h3 class="font-display text-lg text-ink-800">${pl}</h3>
             <span class="text-sm text-ink-500">${group._reqs.length} 个归档需求</span>
           </div>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" class="pl-chevron text-ink-500 transition-transform"><path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -1558,56 +1633,59 @@ function renderArchivePage() {
       </div>
 
       <!-- 迭代列表（折叠内容，默认展开） -->
-      <div class="divide-y divide-ink-100">
+      <div>
         ${Object.entries(group.sprints).sort(([a], [b]) => {
           if (a === '未分配迭代') return 1;
           if (b === '未分配迭代') return -1;
           return a.localeCompare(b);
         }).map(([sprint, reqs]) => `
-          <div>
+          <!-- 迭代区块 -->
+          <div class="${sprint !== '未分配迭代' ? 'border-t border-ink-100' : ''} first:border-t-0">
             <!-- 迭代折叠头 -->
-            <div class="px-6 py-3 cursor-pointer hover:bg-ink-50 transition-colors"
+            <div class="px-8 py-4 cursor-pointer hover:bg-ink-50/60 transition-colors flex items-center justify-between"
                  onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('.sprint-chevron').classList.toggle('rotate-180')">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" class="text-ink-500">
-                    <rect x="1" y="3" width="12" height="9" rx="1" stroke="currentColor" stroke-width="1.2"/>
-                    <path d="M1 6h12" stroke="currentColor" stroke-width="1.2"/>
-                    <path d="M5 1h4v2H5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-                  </svg>
-                  <span class="text-sm font-medium text-ink-800">${sprint}</span>
-                  <span class="text-xs text-ink-500">${reqs.length} 个</span>
-                </div>
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" class="sprint-chevron text-ink-500 transition-transform"><path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <div class="flex items-center gap-3">
+                <!-- 左侧彩色竖条 -->
+                <div class="w-1 h-5 rounded-full bg-ink-500"></div>
+                <svg width="16" height="16" viewBox="0 0 14 14" fill="none" class="text-ink-400">
+                  <rect x="1" y="3" width="12" height="9" rx="1" stroke="currentColor" stroke-width="1.2"/>
+                  <path d="M1 6h12" stroke="currentColor" stroke-width="1.2"/>
+                  <path d="M5 1h4v2H5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                </svg>
+                <span class="text-sm font-semibold text-ink-700">${sprint}</span>
+                <span class="text-xs text-ink-400 bg-ink-50 px-2 py-0.5 rounded-full">${reqs.length} 个需求</span>
               </div>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" class="sprint-chevron text-ink-400 transition-transform"><path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
 
             <!-- 需求列表（默认展开） -->
-            <div class="bg-white">
-              <table class="w-full">
-                <thead>
-                  <tr>
-                    <th>需求ID</th>
-                    <th>需求名称</th>
-                    <th>状态</th>
-                    <th>优先级</th>
-                    <th>开发</th>
-                    <th>归档时间</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${reqs.map(req => `
-                    <tr class="cursor-pointer hover:bg-ink-50 transition-colors" onclick="showDetail('${req.id}', 'archive')">
-                      <td><span class="font-mono text-sm text-ink-500">${req.id}</span></td>
-                      <td><span class="text-sm text-ink-800">${req.title}</span></td>
-                      <td><span class="status-badge status-${req.status}">${req.status}</span></td>
-                      <td><span class="priority-badge priority-${req.priority}">${req.priority}</span></td>
-                      <td class="text-sm text-ink-500">${req.developer || '-'}</td>
-                      <td class="text-sm text-ink-500">${formatDate(req.updated)}</td>
+            <div class="px-8 pb-6">
+              <div class="bg-white rounded-xl border border-ink-100 overflow-hidden shadow-sm">
+                <table class="w-full text-sm">
+                  <thead>
+                    <tr class="border-b border-ink-100 bg-ink-50">
+                      <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:110px">需求ID</th>
+                      <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="min-width:200px">需求名称</th>
+                      <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:100px">状态</th>
+                      <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:90px">优先级</th>
+                      <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:100px">开发</th>
+                      <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:110px">归档时间</th>
                     </tr>
-                  `).join('')}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    ${reqs.map((req, idx) => `
+                      <tr class="cursor-pointer hover:bg-ink-50/60 transition-colors ${idx !== reqs.length - 1 ? 'border-b border-ink-100' : ''}" onclick="showDetail('${req.id}', 'archive')">
+                        <td class="px-4 py-3.5"><span class="font-mono text-sm text-ink-500">${req.id}</span></td>
+                        <td class="px-4 py-3.5"><span class="text-sm text-ink-800 font-medium">${req.title}</span></td>
+                        <td class="px-4 py-3.5"><span class="status-badge status-${req.status}">${req.status}</span></td>
+                        <td class="px-4 py-3.5"><span class="priority-badge priority-${req.priority}">${req.priority}</span></td>
+                        <td class="px-4 py-3.5 text-sm text-ink-500">${req.developer || '-'}</td>
+                        <td class="px-4 py-3.5 text-sm text-ink-500">${formatDate(req.updated)}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         `).join('')}
@@ -2336,54 +2414,52 @@ function renderSprintList() {
   // 空迭代选项（未分配）
   const isUnassignedSelected = currentSprint === null || currentSprint === '';
   html += `
-    <div onclick="selectSprint('')" 
+    <div onclick="selectSprint('')"
          class="sidebar-item ${isUnassignedSelected ? 'active' : ''}"
          data-sprint="">
       <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" class="text-ink-500">
+        <div class="flex items-center gap-2.5">
+          <svg class="sprint-icon text-ink-500" viewBox="0 0 14 14" fill="none">
             <rect x="1" y="3" width="12" height="9" rx="1" stroke="currentColor" stroke-width="1.2"/>
             <path d="M1 6h12" stroke="currentColor" stroke-width="1.2"/>
             <path d="M5 1h4v2H5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
           </svg>
-          <span class="text-sm text-ink-800">未分配</span>
+          <span class="sprint-name text-ink-800">未分配</span>
         </div>
-        <div class="flex items-center gap-2">
-          <span class="text-xs text-ink-500">${unassignedCount}</span>
-        </div>
+        <span class="sprint-count text-ink-500">${unassignedCount}</span>
       </div>
     </div>
   `;
-  
+
   // 迭代列表
   sortedSprints.forEach(sprint => {
     const isSelected = currentSprint === sprint.name;
     const isActive = sprint.status === 'active';
     const reqCount = sprintReqCounts[sprint.name] || 0;
-    
+
     html += `
-      <div onclick="selectSprint('${sprint.name.replace(/'/g, "\\'")}')" 
+      <div onclick="selectSprint('${sprint.name.replace(/'/g, "\\'")}')"
            class="sidebar-item ${isSelected ? 'active' : ''}"
            data-sprint="${sprint.name.replace(/"/g, '&quot;')}"
            ondragover="handleSprintListDragOver(event)"
            ondragleave="handleSprintListDragLeave(event)"
            ondrop="handleSprintListDrop(event, '${sprint.name.replace(/'/g, "\\'")}')">
         <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" class="${isActive ? 'text-ink-600' : 'text-ink-500'}">
+          <div class="flex items-center gap-2.5">
+            <svg class="sprint-icon ${isActive ? 'text-ink-600' : 'text-ink-500'}" viewBox="0 0 14 14" fill="none">
               <rect x="1" y="3" width="12" height="9" rx="1" stroke="currentColor" stroke-width="1.2"/>
               <path d="M1 6h12" stroke="currentColor" stroke-width="1.2"/>
               <path d="M5 1h4v2H5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
             </svg>
-            <span class="text-sm text-ink-800">${sprint.name}</span>
-            ${isActive ? '<span class="px-1.5 py-0.5 rounded text-[10px] bg-blue-50 text-ink-600">进行中</span>' : '<span class="px-1.5 py-0.5 rounded text-[10px] bg-ink-100 text-ink-500">已结束</span>'}
+            <span class="sprint-name text-ink-800">${sprint.name}</span>
+            ${isActive ? '<span class="sprint-status-badge bg-blue-50 text-blue-700">进行中</span>' : '<span class="sprint-status-badge bg-ink-100 text-ink-500">已结束</span>'}
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-xs text-ink-500">${reqCount}</span>
-            <button onclick="event.stopPropagation(); confirmArchiveSprint('${sprint.name.replace(/'/g, "\\'")}')" 
-                    class="p-1 rounded hover:bg-red-50 text-ink-500 hover:text-red-500 transition-colors" 
+            <span class="sprint-count text-ink-500">${reqCount}</span>
+            <button onclick="event.stopPropagation(); confirmArchiveSprint('${sprint.name.replace(/'/g, "\\'")}')"
+                    class="p-1 rounded hover:bg-red-50 text-ink-500 hover:text-red-500 transition-colors"
                     title="归档迭代">
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 6v8h12V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 3h14v3H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 6v8h12V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 3h14v3H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
             </button>
           </div>
         </div>
@@ -2747,49 +2823,49 @@ function renderDraftsList() {
     }).join('');
     
     return `
-      <tr class="req-row group">
-        <td class="px-4 py-3">
+      <tr class="req-row group cursor-pointer hover:bg-ink-50/60 transition-colors" onclick="if(!event.target.closest('[data-stop-click]') && !event.target.closest('.cdropdown-option')) showDraftModal('${draft.id}')">
+        <td class="px-4 py-3" data-stop-click="true">
           <span class="font-mono text-xs text-ink-500">${draft.id}</span>
         </td>
         <td class="px-4 py-3">
           <div class="flex items-center gap-2">
             <span class="font-medium text-ink-800 truncate max-w-xs">${draft.title || '无标题'}</span>
-            ${draft.published_ids && draft.published_ids.length > 0 
-              ? `<span class="text-xs text-green-600">→ ${draft.published_ids.join(', ')}</span>` 
+            ${draft.published_ids && draft.published_ids.length > 0
+              ? `<span class="text-xs text-green-600">→ ${draft.published_ids.join(', ')}</span>`
               : ''}
           </div>
         </td>
-        <td class="px-4 py-3">
+        <td class="px-4 py-3" data-stop-click="true">
           ${cdRender({ id: `cd-draft-status-${draft.id}`, value: draft.status, options: statusOptsArr, style: 'pill', colorType: 'status', onChange: `updateDraftStatus('${draft.id}')`, stopClick: true, extraClass: 'text-xs' })}
         </td>
-        <td class="px-4 py-3">
+        <td class="px-4 py-3" data-stop-click="true">
           ${cdRender({ id: `cd-draft-priority-${draft.id}`, value: draft.priority, options: [{value:'low',label:'低'},{value:'medium',label:'中'},{value:'high',label:'高'}], style: 'pill', colorType: 'priority', onChange: `updateDraftField('${draft.id}','priority')`, stopClick: true, extraClass: 'text-xs' })}
         </td>
-        <td class="px-4 py-3">
+        <td class="px-4 py-3" data-stop-click="true">
           <div class="flex flex-wrap gap-1 text-xs">
-            ${Array.isArray(draft.product_line) && draft.product_line.length > 0 
+            ${Array.isArray(draft.product_line) && draft.product_line.length > 0
               ? draft.product_line.map(pl => `<span class="px-1.5 py-0.5 bg-ink-100 rounded text-ink-600">${pl}</span>`).join('')
               : '<span class="text-ink-400">-</span>'}
           </div>
         </td>
-        <td class="px-4 py-3">
+        <td class="px-4 py-3" data-stop-click="true">
           <span class="text-xs text-ink-500">${draft.source || '-'}</span>
         </td>
-        <td class="px-4 py-3">
+        <td class="px-4 py-3" data-stop-click="true">
           <div class="flex items-center gap-1">
-            <button onclick="showDraftModal('${draft.id}')" class="p-1.5 rounded hover:bg-ink-100 text-ink-400 hover:text-ink-600" title="编辑">
+            <button onclick="event.stopPropagation(); showDraftModal('${draft.id}')" class="p-1.5 rounded hover:bg-ink-100 text-ink-400 hover:text-ink-600" title="编辑">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M10.5 1.5l2 2-8 8H2.5v-2l8-8z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
             </button>
-            ${draft.status !== 'published' 
-              ? `<button onclick="openPublishModal('${draft.id}')" class="p-1.5 rounded hover:bg-sage-100 text-ink-400 hover:text-sage-600" title="发布">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v8M4 6l3 3 3-3M2 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            ${draft.status !== 'published'
+              ? `<button onclick="event.stopPropagation(); openPublishModal('${draft.id}')" class="p-1.5 rounded hover:bg-sage-100 text-ink-400 hover:text-sage-600" title="发布">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M12 7L2 2v10l10-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
                 </button>`
               : ''}
-            <button onclick="previewDraft('${draft.id}')" class="p-1.5 rounded hover:bg-blue-50 text-ink-400 hover:text-blue-600" title="预览">
+            <button onclick="event.stopPropagation(); previewDraft('${draft.id}')" class="p-1.5 rounded hover:bg-blue-50 text-ink-400 hover:text-blue-600" title="预览">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 7s2.5-5 6-5 6 5 6 5-2.5 5-6 5-6-5-6-5z" stroke="currentColor" stroke-width="1.5"/><circle cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.5"/></svg>
             </button>
-            <button onclick="deleteDraft('${draft.id}')" class="p-1.5 rounded hover:bg-rust-50 text-ink-400 hover:text-rust-500" title="删除">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 4h8M5 4V3h4v1M5 6v5M9 6v5M4 4l1 8h4l1-8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <button onclick="event.stopPropagation(); deleteDraft('${draft.id}')" class="p-1.5 rounded hover:bg-rust-50 text-ink-400 hover:text-rust-500" title="删除">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M4.5 3.5V2a1 1 0 011-1h3a1 1 0 011 1v1.5M5.5 6v5M8.5 6v5M3 3.5l1 9h6l1-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
           </div>
         </td>

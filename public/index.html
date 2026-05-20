@@ -31,22 +31,36 @@
     .font-display { font-family: 'Playfair Display', serif; }
 
     /* Status badges — 高辨识度配色 */
-    .status-badge { @apply px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide inline-flex items-center; background: #e8e5e0; color: #635a50; }
+    .status-badge { @apply px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide inline-flex items-center gap-1.5; background: #e8e5e0; color: #635a50; }
+    .status-badge::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.5; }
     .status-设计中 { background: #dbeafe; color: #1e40af; }
+    .status-设计中::before { background: #3b82f6; opacity: 1; }
     .status-待评审 { background: #fef3c7; color: #92400e; }
+    .status-待评审::before { background: #f59e0b; opacity: 1; }
     .status-开发中 { background: #e0e7ff; color: #3730a3; }
+    .status-开发中::before { background: #6366f1; opacity: 1; }
     .status-待验收 { background: #fce7f3; color: #9d174d; }
+    .status-待验收::before { background: #ec4899; opacity: 1; }
     .status-已完成 { background: #d1fae5; color: #065f46; }
+    .status-已完成::before { background: #10b981; opacity: 1; }
     .status-挂起   { background: #f1f0ee; color: #78716c; }
+    .status-挂起::before { background: #a8a29e; opacity: 1; }
 
     /* Priority badges */
-    .priority-badge { @apply px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center; background-color: #d4cfc7; color: #4a433c; }
+    .priority-badge { @apply px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1.5; background-color: #d4cfc7; color: #4a433c; }
+    .priority-badge::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.5; }
     .priority-P0 { background-color: #c46e52; color: white; }
+    .priority-P0::before { background: #fff; opacity: 0.9; }
     .priority-P1 { background-color: #d98f78; color: white; }
+    .priority-P1::before { background: #fff; opacity: 0.9; }
     .priority-P2 { background-color: #eab9a8; color: #52271f; }
+    .priority-P2::before { background: #52271f; opacity: 0.6; }
     .priority-P3 { background-color: #c8d1bd; color: #2e3829; }
+    .priority-P3::before { background: #2e3829; opacity: 0.5; }
     .priority-P4 { background-color: #d4cfc7; color: #4a433c; }
+    .priority-P4::before { background: #4a433c; opacity: 0.5; }
     .priority-P5 { background-color: #e8e5e0; color: #635a50; }
+    .priority-P5::before { background: #635a50; opacity: 0.5; }
 
     /* ===== CustomDropdown 组件样式 ===== */
     .cdropdown { position: relative; display: inline-block; user-select: none; }
@@ -89,7 +103,7 @@
       position: absolute; z-index: 50; margin-top: 4px;
       background: #ffffff; border: 1px solid #e8e5e0; border-radius: 12px;
       box-shadow: 0 8px 24px -4px rgba(28,26,23,0.12), 0 2px 6px -2px rgba(28,26,23,0.06);
-      padding: 4px; min-width: 100%; max-height: 240px; overflow-y: auto;
+      padding: 4px; min-width: 100%; width: max-content; max-height: 240px; overflow-y: auto;
       opacity: 0; transform: translateY(-4px); pointer-events: none;
       transition: opacity 0.15s ease, transform 0.15s ease;
     }
@@ -129,6 +143,53 @@
     /* 隐藏原生select备用（仅无JS降级） */
     select.fallback-select { display: none; }
 
+    /* ===== Toast 提示组件 ===== */
+    .toast-container {
+      position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+      display: flex; flex-direction: column-reverse; gap: 10px;
+      pointer-events: none;
+    }
+    .toast {
+      pointer-events: auto;
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 20px; border-radius: 14px;
+      background: rgba(28, 26, 23, 0.88);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      box-shadow: 0 8px 32px -4px rgba(28,26,23,0.24), 0 2px 8px -2px rgba(28,26,23,0.10);
+      color: #f7f6f4; font-size: 14px; font-weight: 500; line-height: 1.4;
+      min-width: 240px; max-width: 420px;
+      transform: translateY(12px) scale(0.96); opacity: 0;
+      animation: toast-in 0.35s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
+    }
+    .toast.toast-exit {
+      animation: toast-out 0.25s cubic-bezier(0.4, 0, 1, 1) forwards;
+    }
+    .toast-icon {
+      flex-shrink: 0; width: 22px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 50%; font-size: 12px;
+    }
+    .toast-success .toast-icon { background: rgba(16, 185, 129, 0.25); color: #6ee7b7; }
+    .toast-error .toast-icon { background: rgba(239, 68, 68, 0.25); color: #fca5a5; }
+    .toast-info .toast-icon { background: rgba(99, 102, 241, 0.25); color: #a5b4fc; }
+    .toast-msg { flex: 1; }
+    .toast-bar {
+      position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
+      border-radius: 0 3px 3px 0;
+    }
+    .toast-success .toast-bar { background: #10b981; }
+    .toast-error .toast-bar { background: #ef4444; }
+    .toast-info .toast-bar { background: #6366f1; }
+
+    @keyframes toast-in {
+      from { transform: translateY(12px) scale(0.96); opacity: 0; }
+      to   { transform: translateY(0) scale(1); opacity: 1; }
+    }
+    @keyframes toast-out {
+      from { transform: translateY(0) scale(1); opacity: 1; }
+      to   { transform: translateY(8px) scale(0.96); opacity: 0; }
+    }
+
     /* Table row hover */
     .req-row { transition: all 0.15s ease; }
     .req-row:hover { background: #f0eee9; }
@@ -138,9 +199,14 @@
     .product-card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px -12px rgba(28,26,23,0.15); }
 
     /* Sidebar item */
-    .sidebar-item { transition: all 0.15s ease; border-left: 3px solid transparent; }
+    .sidebar-item { transition: all 0.15s ease; border-left: 3px solid transparent; padding: 10px 14px; margin: 2px 6px; border-radius: 10px; cursor: pointer; }
     .sidebar-item:hover { background: #f0eee9; }
     .sidebar-item.active { background: #e8e5e0; border-left-color: #7d7166; }
+    .sidebar-item .sprint-name { font-size: 14px; font-weight: 500; }
+    .sidebar-item .sprint-count { font-size: 13px; font-weight: 600; min-width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; background: #f7f6f4; border-radius: 50%; }
+    .sidebar-item.active .sprint-count { background: #d4cfc7; }
+    .sidebar-item .sprint-status-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 500; }
+    .sidebar-item .sprint-icon { width: 18px; height: 18px; }
 
     /* Prototype container */
     .proto-container { transition: all 0.3s ease; }
@@ -640,7 +706,7 @@
           <div id="kanban-board" class="flex gap-4 overflow-x-auto pb-4" style="min-height: 400px;"></div>
 
           <!-- 表格布局 -->
-          <div id="table-view" class="hidden bg-white rounded-2xl border border-ink-100 overflow-hidden shadow-sm">
+          <div id="table-view" class="hidden bg-white rounded-2xl border border-ink-100 shadow-sm">
             <table class="w-full">
               <thead>
                 <tr class="border-b border-ink-100">
@@ -780,7 +846,7 @@
 
       <!-- 列表表格 -->
       <div class="flex-1 overflow-auto p-8">
-        <div class="bg-white rounded-xl border border-ink-100 overflow-hidden">
+        <div class="bg-white rounded-xl border border-ink-100">
           <table class="w-full">
             <thead class="bg-ink-50">
               <tr class="text-left text-xs font-semibold text-ink-500 uppercase tracking-wider">
@@ -798,7 +864,7 @@
         </div>
 
         <!-- 已搁置折叠栏 -->
-        <div class="mt-4 bg-white rounded-xl border border-ink-100 overflow-hidden">
+        <div class="mt-4 bg-white rounded-xl border border-ink-100">
           <div class="px-6 py-4 bg-ink-50 cursor-pointer hover:bg-ink-100 transition-colors flex items-center justify-between"
                onclick="document.getElementById('archived-drafts-content').classList.toggle('hidden'); this.querySelector('.chevron').classList.toggle('rotate-180')">
             <div class="flex items-center gap-3">
@@ -952,7 +1018,7 @@
         <!-- 右侧需求看板 -->
         <div class="flex-1 overflow-auto p-6">
           <div id="sprint-kanban-board" class="flex gap-4 overflow-x-auto pb-4" style="min-height: 400px;"></div>
-          <div id="sprint-list-view" class="hidden bg-white rounded-2xl border border-ink-100 overflow-hidden shadow-sm">
+          <div id="sprint-list-view" class="hidden bg-white rounded-2xl border border-ink-100 shadow-sm">
             <table class="w-full">
               <thead>
                 <tr class="border-b border-ink-100">
