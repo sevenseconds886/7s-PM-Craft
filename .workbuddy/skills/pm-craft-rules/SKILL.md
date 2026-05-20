@@ -29,10 +29,8 @@ author: 7s-PM-Craft
 │           ├── requirement.md
 │           ├── prototype-web.html
 │           └── prototype-mobile.html
-├── drafts/                           # 需求池草稿目录（v2.1+ 新格式）
-│   └── DRAFT-{id}-{slug}/
-│       ├── draft.md                  # 草稿文档
-│       └── *.html                    # 可选：原型文件
+├── drafts/                      # 需求池草稿目录
+│   └── DRAFT-{id}-{slug}.md    # 草稿文件
 ├── PROTOCOL.md          # 可选，若存在则优先使用
 ├── .sprints.json
 └── .workflow-config.json  # 可选
@@ -44,11 +42,10 @@ author: 7s-PM-Craft
 |------|------|------|
 | 需求 ID | `REQ-` + 6 位数字（全局自增） | `REQ-000042` |
 | 草稿 ID | `DRAFT-` + 3 位数字（自增） | `DRAFT-001` |
-| Slug | 英文或拼音，短横线连接，全小写，最长 50 字符 | `phone-login` |
-| 需求文件夹名 | `REQ-{id}-{slug}` | `REQ-000001-login-page` |
-| 草稿文件夹名 | `DRAFT-{id}-{slug}` | `DRAFT-001-user-feedback` |
-| 草稿文件名 | `draft.md` | — |
-| 原型文件名 | `*.html`（任意命名） | `prototype.html` |
+| Slug | 英文或拼音，短横线连接，全小写，最长 40 字符 | `phone-login` |
+| 文件夹名 | `REQ-{id}-{slug}` | `REQ-000001-login-page` |
+| 草稿文件名 | `DRAFT-{id}-{slug}.md` | `DRAFT-001-用户反馈批量导出订单.md` |
+| 文件名 | 固定为 `requirement.md`、`prototype-web.html`、`prototype-mobile.html` | — |
 
 ### 1.3 ID 分配算法
 
@@ -144,31 +141,25 @@ author: 7s-PM-Craft
 
 ---
 
-## 2.5 草稿文档规范（需求池）
+## 2.6 草稿文档规范（需求池）
 
 ### 2.5.1 文件格式
 
-存储在 `drafts/DRAFT-{id}-{slug}/` 文件夹下：
-```
-drafts/
-└── DRAFT-{id}-{slug}/
-    ├── draft.md           # 草稿文档（必须）
-    ├── requirement.md     # 别名（可选，与 draft.md 等效）
-    └── *.html            # 原型文件（可选）
-```
-
-**向后兼容**：旧格式的单个 `.md` 文件（`DRAFT-{id}-{slug}.md`）仍可读取。
+存储在 `drafts/` 目录下的 `.md` 文件，包含：
+- **YAML Front Matter**（元数据区）
+- **Markdown 正文**（需求描述）
 
 ### 2.5.2 YAML Front Matter 字段定义
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 |------|------|------|--------|------|
 | `id` | string | ✅ | 自动分配 | 格式 `DRAFT-001` |
+| `type` | string | ❌ | `"idea"` | 草稿类型：`idea` / `bug` / `improvement` |
 | `title` | string | ✅ | 无 | 草稿标题 |
 | `status` | string | ✅ | `"draft"` | 状态：`draft` / `in_progress` / `published` / `archived` |
 | `priority` | string | ❌ | `"medium"` | 优先级：`low` / `medium` / `high` |
-| `source` | string | ❌ | `""` | 来源：自由文本 |
-| `product_line` | array | ❌ | `[]` | 关联产品线数组（发布时使用） |
+| `source` | string | ❌ | `"self"` | 来源：`user_feedback` / `competitor` / `tech` / `self` |
+| `product_line` | string | ❌ | `""` | 关联产品线（发布时使用） |
 | `tags` | array | ❌ | `[]` | 标签数组 |
 | `created_at` | string | ✅ | 自动 | ISO 8601 时间戳 |
 | `updated_at` | string | ✅ | 自动 | ISO 8601 时间戳 |
@@ -177,55 +168,9 @@ drafts/
 
 发布草稿时：
 1. 扫描 `products/` 和 `archive/` 分配下一个 `REQ-` ID
-2. 为每个选中的产品线创建文件夹 `products/{product_line}/REQ-{id}-{slug}/`
-3. 生成 `requirement.md`（status 设为第一个状态值，通常为 `"设计中"`）
-4. 复制原型文件（如果有）到新文件夹
-5. 草稿 status 改为 `published`，记录 `published_ids`
-
-### 2.5.4 状态转换规则
-
-草稿状态：`draft` / `in_progress` / `published` / `archived`
-
-| 当前状态 | 可转换到 | 说明 |
-|----------|----------|------|
-| `draft` | `in_progress` / `archived` | 草稿状态 |
-| `in_progress` | `draft` / `archived` | 进行中 |
-| `published` | `archived` | 已发布（仅能归档，不能改回草稿） |
-| `archived` | `draft` | 已搁置（可恢复为草稿） |
-
-**禁止项：**
-- ❌ 不能通过状态更新直接切换到 `published`（必须走发布流程）
-- ❌ 已发布的草稿不能改回 `draft` 或 `in_progress`
-
-## 2.6 草稿扫描算法
-
-### 2.6.1 文件夹扫描规则
-
-`scanDrafts()` 函数按以下顺序扫描草稿：
-
-1. **优先扫描文件夹**（v2.2.0+ 新格式）：
-   - 遍历 `drafts/` 目录，查找 `DRAFT-{id}-{slug}/` 格式的文件夹
-   - 在文件夹内查找 `requirement.md` 或 `draft.md` 作为主体文件
-   - 收集所有 `.html` 文件作为原型文件
-
-2. **兼容旧格式**（向后兼容）：
-   - 扫描 `drafts/` 目录，查找 `DRAFT-{id}-{slug}.md` 格式的单个文件
-   - 仅当不存在对应文件夹时才读取
-
-### 2.6.2 扫描优先级
-
-```
-drafts/
-├── DRAFT-001-new/           # ✓ 优先：文件夹存在
-│   ├── draft.md            #   主体文件（优先）
-│   └── prototype.html
-└── DRAFT-001-old.md        #   仅当 DRAFT-001-new/ 文件夹不存在时读取
-```
-
-### 2.6.3 主体文件选择顺序
-
-1. `requirement.md`（推荐，与 REQ 保持一致）
-2. `draft.md`（传统格式）
+2. 创建文件夹 `products/{product_line}/REQ-{id}-{slug}/`
+3. 生成 `requirement.md`（status 设为 `"设计中"`）
+4. 草稿 status 改为 `published`
 
 ---
 
@@ -390,16 +335,79 @@ PM-Craft server 运行在 `http://localhost:3456`。
 
 若用户输入的值不在列表中，应提示用户可用值。
 
-### 5.5 `/prd-new` 执行流程（规范）
+### 5.5 `/prd-new` 执行流程
 
 1. 读取文件协议（本节 1）
 2. 分配 ID（算法见 1.3）
 3. 生成 slug（算法见 1.4）
 4. 确定产品线（优先使用 `--product-line`，否则询问用户）
 5. 创建文件夹 `products/{product-line}/REQ-{id}-{slug}/`
-6. 调用 PRD 生成器，生成 `requirement.md`
-7. 除非 `--skip-prototype`，调用原型生成器，生成 `prototype-*.html`
+6. 启动 `prd-generator` Skill：
+   - v2 为多轮追问模式（3~5轮），AI 逐步产出阶段物
+   - 追问完成后组装 `requirement.md`，填入分配的 id、created、updated
+   - 写入文件
+7. 除非 `--skip-prototype`，启动 `prototype-generator` Skill：
+   - v2 为多页源文件+组装架构（采集设计系统→解析需求→确认页面→逐页生成→组装）
+   - 组装为 `prototype-web.html`，嵌入 `<meta name="pm-craft-requirement-id">`
+   - 写入对应文件夹
 8. 返回创建成功的需求 ID 和文件路径
+
+### 5.6 `/prd-update` 执行流程
+
+1. 根据 ID 找到需求文件夹（扫描 `products/` 和 `archive/`）
+2. 读取现有 `requirement.md`
+3. 根据更新描述修改内容：
+   - 修改需求描述 → 更新正文
+   - 修改元数据 → 更新 YAML front matter
+4. 自动更新 `updated` 字段为当前日期
+5. 写回文件
+
+### 5.7 `/prd-status` 执行流程
+
+1. 根据 ID 找到需求文件夹
+2. 读取 `requirement.md`
+3. 修改 YAML front matter 中的 `status` 字段
+4. 更新 `updated` 字段
+5. 写回文件
+6. **如果新状态为"归档"**，同时执行归档操作（移动文件夹到 `archive/`）
+
+**状态值来源：** 先调用 `GET http://localhost:3456/api/settings` 获取 `statusList`，若用户输入的状态不在列表中，提示可用状态。
+
+### 5.8 `/prd-priority` 执行流程
+
+1. 根据 ID 找到需求文件夹
+2. 读取 `requirement.md`
+3. 修改 YAML front matter 中的 `priority` 字段
+4. 更新 `updated` 字段
+5. 写回文件
+
+**优先级值来源：** 先调用 `GET http://localhost:3456/api/settings` 获取 `priorityList`。
+
+**优先级语义（参考）：**
+- P0：紧急且重要，阻断主流程
+- P1：重要，不阻断主流程
+- P2：常规需求
+- P3：优化类需求
+- P4/P5：可延迟或取消
+
+### 5.9 `/prd-sprint` 执行流程
+
+1. 根据 ID 找到需求文件夹
+2. 读取 `requirement.md`
+3. 修改 YAML front matter 中的 `sprint` 字段
+4. 更新 `updated` 字段
+5. 写回文件
+6. 如果指定了迭代名，检查 `.sprints.json` 是否已存在该迭代；若不存在，自动创建
+7. 如果指定了 `--clear`，将 `sprint` 设为空字符串（移除分配）
+8. 不能将需求分配到已关闭的迭代（`status === "closed"`）
+
+### 5.10 `/prd-archive` 执行流程
+
+1. 根据 ID 找到需求文件夹
+2. 修改 `status` 为"归档"
+3. 更新 `updated` 字段
+4. 将文件夹从 `products/{product-line}/` 移动到 `archive/{product-line}/`
+5. 如果 `archive/` 下不存在该产品线文件夹，自动创建
 
 ---
 
@@ -496,20 +504,21 @@ archive/{产品线}/REQ-{id}-{slug}/
 
 ---
 
-## 附录：与旧版 Skill 的对应关系
+## 附录：与独立 Skill 的关系
 
-| 旧 Skill | 合并到本节 |
-|----------|-------------|
-| `prd-generator` | 第 2 节 |
-| `prototype-generator` | 第 3 节 |
-| `workflow-orchestrator` | 第 1、5 节 |
-| `sprint-manager` | 第 4 节 |
-| （新增） | 第 6、7 节 |
+本文件是**规范层**（格式定义、接口规范、校验规则），独立 Skill 是**执行层**（生成逻辑、交互流程）。
+
+| Skill | 规范在本文件 | 执行在独立 Skill | 说明 |
+|-------|-------------|-----------------|------|
+| `prd-generator` v2 | §2（需求文档格式） | 多轮追问+模块化模板 | 规范定义字段，Skill 定义怎么生成内容 |
+| `prototype-generator` v2 | §3（原型规范） | 多页源文件+组装 | 规范定义接口，Skill 定义怎么生成代码 |
+| `sprint-manager` v2 | §4（迭代数据格式） | 操作指引+工作流 | 规范定义数据结构，Skill 定义操作步骤 |
+| ~~`workflow-orchestrator`~~ | §1、§5 | 已删除 | 内容已合并到本文件 |
 
 ---
 
 > **版本历史**
-> - **v2.2.0**（2026-05-11）：草稿结构从扁平 `.md` 文件升级为文件夹层级；新增 2.6 节草稿扫描算法；新增 2.5.4 节状态转换规则；明确向后兼容旧格式；主体文件优先 `requirement.md`；修复 `scanDrafts()` 缺少旧格式兼容的 bug。
+> - v2.2.0（2026-05-20）：修复 §2.5 重复章节号（草稿规范改为 §2.6）；合并 `workflow-orchestrator` 到 §5（新增 §5.6-5.10 执行流程）；更新 `/prd-new` 流程兼容 v2 多轮追问模式；删除 workflow-orchestrator 独立 Skill。
 > - v2.1.0（2026-05-11）：新增需求池（drafts）文件协议规范；新增 8 个草稿 API 端点；草稿文件格式定义；发布流程规范。
 > - v2.0.0（2026-05-09）：合并 `prd-generator`、`prototype-generator`、`workflow-orchestrator`、`sprint-manager` 为一个规范文件；新增第 6 节（元数据校验规则）和第 7 节（产物放置规则）；更新 `product_line` 为 array 格式。
 > - v1.x.x：各 Skill 独立版本，见各 SKILL.md 历史记录。

@@ -1,0 +1,10 @@
+name: 标准需求
+description: 适合常规功能需求
+modules:
+  - background
+  - goals
+  - feature_map
+  - requirements
+  - pages
+  - open_issues
+chart_format: mermaid

@@ -1,0 +1,14 @@
+name: 完整需求
+description: 适合重大功能、新系统
+modules:
+  - background
+  - goals
+  - roles
+  - feature_map
+  - flowchart
+  - requirements
+  - pages
+  - data_model
+  - non_functional
+  - open_issues
+chart_format: mermaid
