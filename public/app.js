@@ -249,6 +249,90 @@ document.addEventListener('click', (e) => {
   }
 });
 
+// ===== 全局事件委托（替代内联 onclick）=====
+document.addEventListener('click', (e) => {
+  const actionEl = e.target.closest('[data-action]');
+  if (!actionEl) return;
+
+  const action = actionEl.dataset.action;
+  const mode = actionEl.dataset.mode;
+  const status = actionEl.dataset.status;
+
+  // 导航/页面切换
+  if (action === 'showHome') { showHome(); return; }
+  if (action === 'showListPage') { showListPage(); return; }
+  if (action === 'showSprintView') { showSprintView(); return; }
+  if (action === 'showDraftsPage') { showDraftsPage(); return; }
+  if (action === 'showArchivePage') { showArchivePage(); return; }
+
+  // 弹窗
+  if (action === 'showSettings') { showSettings(); return; }
+  if (action === 'closeSettings') { closeSettings(); return; }
+  if (action === 'showCreateReqModal') { showCreateReqModal(); return; }
+  if (action === 'closeCreateReqModal') { closeCreateReqModal(); return; }
+  if (action === 'showCreateSprintModal') { showCreateSprintModal(); return; }
+  if (action === 'closeCreateSprintModal') { closeCreateSprintModal(); return; }
+  if (action === 'showDraftModal') { showDraftModal(); return; }
+  if (action === 'closeDraftModal') { closeDraftModal(); return; }
+  if (action === 'showVersionHistory') { showVersionHistory(); return; }
+  if (action === 'closeVersionHistory') { closeVersionHistory(); return; }
+  if (action === 'closePublishModal') { closePublishModal(); return; }
+  if (action === 'closeDraftPreviewModal') { closeDraftPreviewModal(); return; }
+
+  // 操作
+  if (action === 'refreshData') { refreshData(); return; }
+  if (action === 'clearSearch') { clearSearch(); return; }
+  if (action === 'clearFilters') { clearFilters(); return; }
+  if (action === 'createRequirement') { createRequirement(); return; }
+  if (action === 'createSprintFromModal') { createSprintFromModal(); return; }
+  if (action === 'saveDraft') { saveDraft(); return; }
+  if (action === 'confirmPublish') { confirmPublish(); return; }
+  if (action === 'addNewProductLine') { addNewProductLine(); return; }
+  if (action === 'addProductLineFromSettings') { addProductLineFromSettings(); return; }
+  if (action === 'addStatusFromSettings') { addStatusFromSettings(); return; }
+  if (action === 'addPriorityFromSettings') { addPriorityFromSettings(); return; }
+
+  // 视图切换
+  if (action === 'switchStatusViewMode') { switchStatusViewMode(mode); return; }
+  if (action === 'switchSprintViewMode') { switchSprintViewMode(mode); return; }
+
+  // 详情页
+  if (action === 'toggleDocPanel') { toggleDocPanel(); return; }
+  if (action === 'toggleDocEditMode') { toggleDocEditMode(); return; }
+  if (action === 'saveDocContent') { saveDocContent(); return; }
+  if (action === 'cancelDocEdit') { cancelDocEdit(); return; }
+  if (action === 'togglePrototypeFullscreen') { togglePrototypeFullscreen(); return; }
+
+  // 需求池
+  if (action === 'setDraftStatusFilter') { setDraftStatusFilter(status); return; }
+  if (action === 'toggleArchivedDrafts') {
+    document.getElementById('archived-drafts-content').classList.toggle('hidden');
+    actionEl.querySelector('.chevron').classList.toggle('rotate-180');
+    return;
+  }
+});
+
+// input 事件委托
+document.addEventListener('input', (e) => {
+  const action = e.target.dataset.inputAction;
+  if (!action) return;
+  if (action === 'applyFilters') { applyFilters(); return; }
+  if (action === 'renderDraftsList') { renderDraftsList(); return; }
+});
+
+// keydown 事件委托（Enter 触发）
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  const action = e.target.dataset.keydownAction;
+  if (!action) return;
+  e.preventDefault();
+  if (action === 'addNewProductLine') { addNewProductLine(); return; }
+  if (action === 'createSprintFromModal') { createSprintFromModal(); return; }
+  if (action === 'addProductLineFromSettings') { addProductLineFromSettings(); return; }
+  if (action === 'addStatusFromSettings') { addStatusFromSettings(); return; }
+  if (action === 'addPriorityFromSettings') { addPriorityFromSettings(); return; }
+});
+
 // 获取 dropdown 当前值
 function cdGetValue(uid) {
   const el = document.getElementById(uid);
@@ -331,24 +415,9 @@ function initCustomStyles() {
   const defaultStatuses = ['设计中', '待评审', '开发中', '待验收', '已完成', '挂起'];
   const defaultPriorities = ['P0', 'P1', 'P2', 'P3', 'P4', 'P5'];
 
-  // 高辨识度状态配色
-  const statusPalette = [
-    { bg: '#dbeafe', text: '#1e40af' },
-    { bg: '#fef3c7', text: '#92400e' },
-    { bg: '#e0e7ff', text: '#3730a3' },
-    { bg: '#fce7f3', text: '#9d174d' },
-    { bg: '#d1fae5', text: '#065f46' },
-    { bg: '#f1f0ee', text: '#78716c' },
-  ];
-  // Apple 灰度优先级配色
-  const priorityPalette = [
-    { bg: '#c46e52', text: '#ffffff' },
-    { bg: '#d98f78', text: '#ffffff' },
-    { bg: '#eab9a8', text: '#52271f' },
-    { bg: '#c8d1bd', text: '#2e3829' },
-    { bg: '#d4cfc7', text: '#4a433c' },
-    { bg: '#c8d1bd', text: '#2e3829' },
-  ];
+  // 复用 CD_STATUS_COLORS 和 CD_PRIORITY_COLORS，避免重复定义
+  const statusPalette = Object.values(CD_STATUS_COLORS).map(c => ({ bg: c.bg, text: c.text }));
+  const priorityPalette = Object.values(CD_PRIORITY_COLORS).map(c => ({ bg: c.bg, text: c.text }));
 
   const allStatuses = settings.statusList || [];
   const allPriorities = settings.priorityList || [];
@@ -456,7 +525,7 @@ function renderHome() {
   const statColors = { total: 'bg-ink-800 text-white' };
   const statLabels = { total: '总需求' };
 
-  // 高辨识度状态配色（与 badge 颜色一致）
+  // 状态配色（与 CD_STATUS_COLORS 对应）
   const statusColorPalette = [
     'bg-blue-100 text-blue-800',
     'bg-amber-100 text-amber-800',
@@ -464,8 +533,6 @@ function renderHome() {
     'bg-pink-100 text-pink-800',
     'bg-emerald-100 text-emerald-800',
     'bg-stone-100 text-stone-500',
-    'bg-blue-100 text-blue-800',
-    'bg-amber-100 text-amber-800',
   ];
 
   (settings.statusList || []).forEach((status, idx) => {
@@ -741,23 +808,13 @@ function updateStatusViewModeButtons() {
 function renderKanban(reqs) {
   const board = document.getElementById('kanban-board');
 
-  // 看板配色：accent色用于左侧彩条+圆点
-  const kanbanColorPalette = [
-    { accent: '#3b82f6' },
-    { accent: '#f59e0b' },
-    { accent: '#6366f1' },
-    { accent: '#ec4899' },
-    { accent: '#10b981' },
-    { accent: '#a8a29e' },
-    { accent: '#3b82f6' },
-    { accent: '#f59e0b' }
-  ];
+  // 看板配色：从 CD_STATUS_COLORS 提取 accent 色
+  const kanbanColorPalette = Object.values(CD_STATUS_COLORS).map(c => ({ accent: c.text }));
 
-  // 优先级圆点配色
-  const priorityDotColors = {
-    'P0': '#c46e52', 'P1': '#d98f78', 'P2': '#eab9a8',
-    'P3': '#c8d1bd', 'P4': '#d4cfc7', 'P5': '#e8e5e0'
-  };
+  // 优先级圆点配色：从 CD_PRIORITY_COLORS 提取
+  const priorityDotColors = Object.fromEntries(
+    Object.entries(CD_PRIORITY_COLORS).map(([k, v]) => [k, v.bg])
+  );
 
   board.innerHTML = (settings.statusList || []).map((status, idx) => {
     const statusReqs = reqs.filter(r => r.status === status);
@@ -1051,7 +1108,7 @@ function loadPrototype(req) {
     docPanelOpen = true;
 
     // 清空原型容器
-    container.innerHTML = `<iframe id="prototype-frame" class="w-full h-full border-0"></iframe>`;
+    container.innerHTML = `<iframe id="prototype-frame" class="w-full h-full border-0" title="需求原型"></iframe>`;
     frame = document.getElementById('prototype-frame');
     if (frame) frame.src = 'about:blank';
     return;
@@ -1080,7 +1137,7 @@ function loadPrototype(req) {
   const protoFile = `/products/${encodeURIComponent(primaryPL || '未分类')}/${encodeURIComponent(req.folderName)}/prototype-${platform}.html`;
 
   // 有原型时，恢复 iframe 结构
-  container.innerHTML = `<iframe id="prototype-frame" class="w-full h-full border-0"></iframe>`;
+  container.innerHTML = `<iframe id="prototype-frame" class="w-full h-full border-0" title="需求原型"></iframe>`;
 
   // 重新获取 iframe 引用
   const newFrame = document.getElementById('prototype-frame');
@@ -1663,21 +1720,29 @@ function renderArchivePage() {
   }
 
   // 按产品线 → 迭代 两级分组
+  const groups = groupArchivedByProductLineAndSprint(archivedReqs);
+  container.innerHTML = Object.entries(groups).map(([pl, group]) => renderArchiveProductLineCard(pl, group)).join('');
+}
+
+// 归档需求分组：按产品线 → 迭代
+function groupArchivedByProductLineAndSprint(archivedReqs) {
   const groups = {};
   for (const req of archivedReqs) {
     const pls = toArray(req.productLine);
     for (const pl of pls) {
       if (!groups[pl]) groups[pl] = { _reqs: [], sprints: {} };
       groups[pl]._reqs.push(req);
-
-      // 按迭代分组
       const sprintKey = req.sprint || '未分配迭代';
       if (!groups[pl].sprints[sprintKey]) groups[pl].sprints[sprintKey] = [];
       groups[pl].sprints[sprintKey].push(req);
     }
   }
+  return groups;
+}
 
-  container.innerHTML = Object.entries(groups).map(([pl, group]) => `
+// 渲染归档页的产品线卡片
+function renderArchiveProductLineCard(pl, group) {
+  return `
     <div class="bg-white rounded-2xl border border-ink-100 overflow-hidden shadow-sm mb-8">
       <!-- 产品线折叠头 -->
       <div class="px-8 py-5 bg-ink-50 border-b border-ink-100 cursor-pointer hover:bg-ink-100 transition-colors"
@@ -1696,73 +1761,81 @@ function renderArchivePage() {
         </div>
       </div>
 
-      <!-- 迭代列表（折叠内容，默认展开） -->
+      <!-- 迭代列表 -->
       <div>
-        ${Object.entries(group.sprints).sort(([a], [b]) => {
-          if (a === '未分配迭代') return 1;
-          if (b === '未分配迭代') return -1;
-          return a.localeCompare(b);
-        }).map(([sprint, reqs]) => `
-          <!-- 迭代区块 -->
-          <div class="${sprint !== '未分配迭代' ? 'border-t border-ink-100' : ''} first:border-t-0">
-            <!-- 迭代折叠头 -->
-            <div class="px-8 py-4 cursor-pointer hover:bg-ink-50/60 transition-colors flex items-center justify-between"
-                 onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('.sprint-chevron').classList.toggle('rotate-180')">
-              <div class="flex items-center gap-3">
-                <!-- 左侧彩色竖条 -->
-                <div class="w-1 h-5 rounded-full bg-ink-500"></div>
-                <svg width="16" height="16" viewBox="0 0 14 14" fill="none" class="text-ink-400">
-                  <rect x="1" y="3" width="12" height="9" rx="1" stroke="currentColor" stroke-width="1.2"/>
-                  <path d="M1 6h12" stroke="currentColor" stroke-width="1.2"/>
-                  <path d="M5 1h4v2H5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-                </svg>
-                <span class="text-sm font-semibold text-ink-700">${sprint}</span>
-                <span class="text-xs text-ink-400 bg-ink-50 px-2 py-0.5 rounded-full">${reqs.length} 个需求</span>
-              </div>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" class="sprint-chevron text-ink-400 transition-transform"><path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </div>
-
-            <!-- 需求列表（默认展开） -->
-            <div class="px-8 pb-6">
-              <div class="bg-white rounded-xl border border-ink-100 overflow-hidden shadow-sm">
-                <table class="w-full text-sm">
-                  <thead>
-                    <tr class="border-b border-ink-100 bg-ink-50">
-                      <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:110px">需求ID</th>
-                      <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="min-width:200px">需求名称</th>
-                      <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:100px">状态</th>
-                      <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:90px">优先级</th>
-                      <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:100px">开发</th>
-                      <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:110px">归档时间</th>
-                      <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:80px">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${reqs.map((req, idx) => `
-                      <tr class="cursor-pointer hover:bg-ink-50/60 transition-colors ${idx !== reqs.length - 1 ? 'border-b border-ink-100' : ''}" onclick="showDetail('${escapeHtml(req.id)}', 'archive')">
-                        <td class="px-4 py-3.5"><span class="font-mono text-sm text-ink-500">${escapeHtml(req.id)}</span></td>
-                        <td class="px-4 py-3.5"><span class="text-sm text-ink-800 font-medium">${escapeHtml(req.title)}</span></td>
-                        <td class="px-4 py-3.5"><span class="static-pill sp-status-${req.status}">${req.status}</span></td>
-                        <td class="px-4 py-3.5"><span class="static-pill sp-priority-${req.priority}">${req.priority}</span></td>
-                        <td class="px-4 py-3.5 text-sm text-ink-500">${req.developer || '-'}</td>
-                        <td class="px-4 py-3.5 text-sm text-ink-500">${formatDate(req.updated)}</td>
-                        <td class="px-4 py-3.5" data-stop-click="true">
-                          <button onclick="event.stopPropagation(); unarchiveReq('${escapeHtml(req.id)}')"
-                                  class="p-1.5 rounded-full text-ink-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
-                                  title="回退到需求池" draggable="false">
-                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M8 3L4 7M8 3l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                          </button>
-                        </td>
-                      </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        `).join('')}
+        ${renderArchiveSprintSections(group.sprints)}
       </div>
     </div>
+  `;
+}
+
+// 渲染归档页的迭代区块
+function renderArchiveSprintSections(sprints) {
+  return Object.entries(sprints).sort(([a], [b]) => {
+    if (a === '未分配迭代') return 1;
+    if (b === '未分配迭代') return -1;
+    return a.localeCompare(b);
+  }).map(([sprint, reqs]) => `
+    <div class="${sprint !== '未分配迭代' ? 'border-t border-ink-100' : ''} first:border-t-0">
+      <!-- 迭代折叠头 -->
+      <div class="px-8 py-4 cursor-pointer hover:bg-ink-50/60 transition-colors flex items-center justify-between"
+           onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('.sprint-chevron').classList.toggle('rotate-180')">
+        <div class="flex items-center gap-3">
+          <div class="w-1 h-5 rounded-full bg-ink-500"></div>
+          <svg width="16" height="16" viewBox="0 0 14 14" fill="none" class="text-ink-400">
+            <rect x="1" y="3" width="12" height="9" rx="1" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M1 6h12" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M5 1h4v2H5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+          </svg>
+          <span class="text-sm font-semibold text-ink-700">${sprint}</span>
+          <span class="text-xs text-ink-400 bg-ink-50 px-2 py-0.5 rounded-full">${reqs.length} 个需求</span>
+        </div>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" class="sprint-chevron text-ink-400 transition-transform"><path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+
+      <!-- 需求列表 -->
+      <div class="px-8 pb-6">
+        <div class="bg-white rounded-xl border border-ink-100 overflow-hidden shadow-sm">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-ink-100 bg-ink-50">
+                <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:110px">需求ID</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="min-width:200px">需求名称</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:100px">状态</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:90px">优先级</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:100px">开发</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:110px">归档时间</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:80px">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${renderArchiveReqRows(reqs)}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// 渲染归档页的需求行
+function renderArchiveReqRows(reqs) {
+  return reqs.map((req, idx) => `
+    <tr class="cursor-pointer hover:bg-ink-50/60 transition-colors ${idx !== reqs.length - 1 ? 'border-b border-ink-100' : ''}" onclick="showDetail('${escapeHtml(req.id)}', 'archive')">
+      <td class="px-4 py-3.5"><span class="font-mono text-sm text-ink-500">${escapeHtml(req.id)}</span></td>
+      <td class="px-4 py-3.5"><span class="text-sm text-ink-800 font-medium">${escapeHtml(req.title)}</span></td>
+      <td class="px-4 py-3.5"><span class="static-pill sp-status-${req.status}">${req.status}</span></td>
+      <td class="px-4 py-3.5"><span class="static-pill sp-priority-${req.priority}">${req.priority}</span></td>
+      <td class="px-4 py-3.5 text-sm text-ink-500">${req.developer || '-'}</td>
+      <td class="px-4 py-3.5 text-sm text-ink-500">${formatDate(req.updated)}</td>
+      <td class="px-4 py-3.5" data-stop-click="true">
+        <button onclick="event.stopPropagation(); unarchiveReq('${escapeHtml(req.id)}')"
+                class="p-1.5 rounded-full text-ink-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                title="回退到需求池" draggable="false">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M8 3L4 7M8 3l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </td>
+    </tr>
   `).join('');
 }
 
@@ -2660,23 +2733,13 @@ function renderSprintBoard() {
 function renderSprintKanbanBoard(reqs) {
   const board = document.getElementById('sprint-kanban-board');
 
-  // 看板配色：accent色用于左侧彩条+圆点
-  const kanbanColorPalette = [
-    { accent: '#3b82f6' },
-    { accent: '#f59e0b' },
-    { accent: '#6366f1' },
-    { accent: '#ec4899' },
-    { accent: '#10b981' },
-    { accent: '#a8a29e' },
-    { accent: '#3b82f6' },
-    { accent: '#f59e0b' }
-  ];
+  // 看板配色：从 CD_STATUS_COLORS 提取 accent 色
+  const kanbanColorPalette = Object.values(CD_STATUS_COLORS).map(c => ({ accent: c.text }));
 
-  // 优先级圆点配色
-  const priorityDotColors = {
-    'P0': '#c46e52', 'P1': '#d98f78', 'P2': '#eab9a8',
-    'P3': '#c8d1bd', 'P4': '#d4cfc7', 'P5': '#e8e5e0'
-  };
+  // 优先级圆点配色：从 CD_PRIORITY_COLORS 提取
+  const priorityDotColors = Object.fromEntries(
+    Object.entries(CD_PRIORITY_COLORS).map(([k, v]) => [k, v.bg])
+  );
 
   board.innerHTML = (settings.statusList || []).map((status, idx) => {
     const statusReqs = reqs.filter(r => r.status === status);
