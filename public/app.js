@@ -8,6 +8,34 @@ let docPanelOpen = false;
 let docEditMode = false;
 let draggedReqId = null;
 let isSearchMode = false;
+
+// HTML 转义工具（防止 XSS）
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// 将值转为数组（产品线字段兼容 string/array）
+function toArray(v) {
+  return Array.isArray(v) ? v : (v ? [v] : []);
+}
+
+// 常量配置
+const CONFIG = {
+  TOAST_DURATION: 2800,
+  TOAST_FADE_DELAY: 260,
+  DROPDOWN_SPACE_THRESHOLD: 200,
+  SIDEBAR_MIN_WIDTH: 180,
+  SIDEBAR_MAX_WIDTH: 400,
+  DOC_PANEL_MIN_WIDTH: 260,
+  DOC_PANEL_MAX_WIDTH: 600,
+};
+
 let lastSearchQuery = '';
 let activeFilters = { status: null, priority: null, sprint: null, developer: '', requester: '' }; // 高级筛选状态
 let statusViewMode = 'list'; // 'card' | 'list'
@@ -17,7 +45,6 @@ let previousPage = 'home'; // 'home' | 'list' | 'archive' | 'sprint' | 'drafts'
 let docIsDirty = false; // 文档是否被修改过
 
 // 需求池状态
-let currentDraftId = null;
 let editingDraft = null;
 let currentDraftStatusFilter = ''; // 当前状态筛选
 
@@ -61,13 +88,12 @@ function initResizablePanels() {
   }
 
   // 左侧 sidebar：向右拖放大
-  makeResizable(sidebarResizer, sidebar, 'left', 180, 400, 'pm-sidebar-width');
+  makeResizable(sidebarResizer, sidebar, 'left', CONFIG.SIDEBAR_MIN_WIDTH, CONFIG.SIDEBAR_MAX_WIDTH, 'pm-sidebar-width');
   // 右侧 doc panel：向左拖放大
-  makeResizable(docResizer, docPanel, 'right', 260, 600, 'pm-doc-width');
+  makeResizable(docResizer, docPanel, 'right', CONFIG.DOC_PANEL_MIN_WIDTH, CONFIG.DOC_PANEL_MAX_WIDTH, 'pm-doc-width');
 }
 
 // ===== CustomDropdown 组件 =====
-const CD_INSTANCES = new Map();
 let _cdUID = 0;
 
 // 颜色映射表
@@ -148,7 +174,7 @@ function cdToggle(uid) {
     const panel = el.querySelector('.cdropdown-panel');
     const rect = el.getBoundingClientRect();
     const spaceBelow = window.innerHeight - rect.bottom;
-    panel.classList.toggle('upward', spaceBelow < 200);
+    panel.classList.toggle('upward', spaceBelow < CONFIG.DROPDOWN_SPACE_THRESHOLD);
   }
 }
 
@@ -170,7 +196,7 @@ function cdSelect(uid, value) {
   const onchange = el.dataset.onchange;
   let colorType2 = '';
   if (onchange && onchange.includes('Status')) colorType2 = 'status';
-  else if (onchange && onchange.includes('Priority') || onchange.includes('priority')) colorType2 = 'priority';
+  else if (onchange && (onchange.includes('Priority') || onchange.includes('priority'))) colorType2 = 'priority';
   if (colorType2 && value) el.classList.add(`cd-${colorType2}-${value}`);
 
   // 更新 label
@@ -240,7 +266,7 @@ function cdSetValue(uid, value) {
   const onchange = el.dataset.onchange;
   let colorType = '';
   if (onchange && onchange.includes('Status')) colorType = 'status';
-  else if (onchange && onchange.includes('Priority') || onchange.includes('priority')) colorType = 'priority';
+  else if (onchange && (onchange.includes('Priority') || onchange.includes('priority'))) colorType = 'priority';
   if (colorType && value) el.classList.add(`cd-${colorType}-${value}`);
   // 更新 label 和 selected
   const optEl = el.querySelector(`.cdropdown-option[data-value="${CSS.escape(value)}"]`);
@@ -258,7 +284,7 @@ function cdUpdateOptions(uid, options, selectedValue) {
   const onchange = el.dataset.onchange;
   let colorType = '';
   if (onchange && onchange.includes('Status')) colorType = 'status';
-  else if (onchange && onchange.includes('Priority') || onchange.includes('priority')) colorType = 'priority';
+  else if (onchange && (onchange.includes('Priority') || onchange.includes('priority'))) colorType = 'priority';
 
   panel.innerHTML = options.map(o => {
     const sel = o.value === selectedValue ? 'selected' : '';
@@ -296,8 +322,8 @@ function showToast(message, type = 'success') {
 
   setTimeout(() => {
     toast.classList.add('toast-exit');
-    setTimeout(() => toast.remove(), 260);
-  }, 2800);
+    setTimeout(() => toast.remove(), CONFIG.TOAST_FADE_DELAY);
+  }, CONFIG.TOAST_DURATION);
 }
 
 // 初始化自定义状态/优先级样式（Apple 灰度风格）
@@ -482,7 +508,7 @@ function renderHome() {
   const settingsProductLines = settings.productLines || [];
   const reqProductLines = currentData.requirements
     .filter(r => !r.isArchive)
-    .flatMap(r => Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []));
+    .flatMap(r => toArray(r.productLine));
   const productLines = [...new Set([...settingsProductLines, ...reqProductLines])];
 
   // 产品线搜索过滤
@@ -492,7 +518,7 @@ function renderHome() {
 
   productLinesContainer.innerHTML = filteredProductLines.map(pl => {
     const plReqs = currentData.requirements.filter(r => {
-      const pls = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
+      const pls = toArray(r.productLine);
       return pls.includes(pl) && !r.isArchive;
     });
     const statusBreakdown = (settings.statusList || []).map(s => {
@@ -629,7 +655,7 @@ function renderList() {
   if (isSearchMode) {
     const q = lastSearchQuery;
     reqs = currentData.requirements.filter(r => {
-      const pls = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
+      const pls = toArray(r.productLine);
       return (r.title && r.title.toLowerCase().includes(q)) ||
         (r.id && r.id.toLowerCase().includes(q)) ||
         (r.developer && r.developer.toLowerCase().includes(q)) ||
@@ -638,7 +664,7 @@ function renderList() {
     });
   } else {
     reqs = currentData.requirements.filter(r => {
-      const pls = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
+      const pls = toArray(r.productLine);
       return pls.includes(currentProductLine);
     });
   }
@@ -801,12 +827,12 @@ function renderReqTable(reqs) {
     const protoHtml = protoBadges.length > 0 ? `<div class="flex gap-1">${protoBadges.join('')}</div>` : '<span class="text-xs text-ink-400">-</span>';
 
     // 产品线标签（可编辑）
-    const pls = Array.isArray(req.productLine) ? req.productLine : (req.productLine ? [req.productLine] : []);
+    const pls = toArray(req.productLine);
     // 合并所有来源的产品线：settings + 所有需求元数据 + 当前需求自身
     const allPls = new Set([
       ...(settings.productLines || []),
       ...currentData.requirements.flatMap(r => {
-        const p = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
+        const p = toArray(r.productLine);
         return p;
       })
     ]);
@@ -820,13 +846,13 @@ function renderReqTable(reqs) {
     return `
     <tr class="border-b border-ink-50 hover:bg-ink-50 transition-colors">
       <td class="px-5 py-4">
-        <span class="font-mono text-sm text-ink-500">${req.id}</span>
+        <span class="font-mono text-sm text-ink-500">${escapeHtml(req.id)}</span>
       </td>
       <td class="px-5 py-4">
-        <div class="text-sm text-ink-800 cursor-pointer hover:text-ink-600 transition-colors" onclick="showDetail('${req.id}')">${req.title}</div>
+        <div class="text-sm text-ink-800 cursor-pointer hover:text-ink-600 transition-colors" onclick="showDetail('${escapeHtml(req.id)}')">${escapeHtml(req.title)}</div>
       </td>
       <td class="px-5 py-4" data-stop-click="true">
-        ${cdRender({ id: `cd-pl-${req.id}`, value: plValue, options: plOptions, style: 'pill', colorType: '', onChange: `updateProductLine('${req.id}')`, stopClick: true })}
+        ${cdRender({ id: `cd-pl-${req.id}`, value: plValue, options: plOptions, style: 'pill', colorType: '', onChange: `updateProductLine('${escapeHtml(req.id)}')`, stopClick: true })}
       </td>
       <td class="px-5 py-4">
         ${cdRender({ id: `cd-status-${req.id}`, value: req.status, options: (settings.statusList || []).map(s => ({value: s, label: s})), style: 'pill', colorType: 'status', onChange: `updateStatus('${req.id}')`, stopClick: true })}
@@ -929,8 +955,8 @@ function renderDetail() {
   const prColors = CD_PRIORITY_COLORS[req.priority] || {bg:'#d4cfc7',text:'#4a433c'};
   document.getElementById('detail-header').innerHTML = `
     <div class="flex items-center gap-3 flex-wrap">
-      <span class="font-mono text-xs text-ink-500">${req.id}</span>
-      <span class="text-sm text-ink-800 font-medium">${req.title}</span>
+      <span class="font-mono text-xs text-ink-500">${escapeHtml(req.id)}</span>
+      <span class="text-sm text-ink-800 font-medium">${escapeHtml(req.title)}</span>
       <div class="flex items-center gap-2">
         <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border"
               style="background:${stColors.bg};color:${stColors.text};border-color:${stColors.border}">
@@ -946,9 +972,9 @@ function renderDetail() {
   `;
 
   // 左侧需求列表 — 显示与当前需求共享至少一个产品线的需求
-  const currentReqPLs = Array.isArray(req.productLine) ? req.productLine : (req.productLine ? [req.productLine] : []);
+  const currentReqPLs = toArray(req.productLine);
   const plReqs = currentData.requirements.filter(r => {
-    const pls = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
+    const pls = toArray(r.productLine);
     return pls.some(pl => currentReqPLs.includes(pl));
   });
   document.getElementById('detail-sidebar').innerHTML = plReqs.map(r => {
@@ -997,7 +1023,7 @@ function renderDetail() {
 
 // 加载原型
 function loadPrototype(req) {
-  const frame = document.getElementById('prototype-frame');
+  let frame = document.getElementById('prototype-frame');
   const container = document.getElementById('prototype-container');
   const prototypeArea = document.getElementById('prototype-area');
   const docPanel = document.getElementById('doc-panel');
@@ -1050,7 +1076,7 @@ function loadPrototype(req) {
     docResizer.style.display = 'none';
   }
 
-  const primaryPL = Array.isArray(req.productLine) ? req.productLine[0] : req.productLine;
+  const primaryPL = toArray(req.productLine)[0];
   const protoFile = `/products/${encodeURIComponent(primaryPL || '未分类')}/${encodeURIComponent(req.folderName)}/prototype-${platform}.html`;
 
   // 有原型时，恢复 iframe 结构
@@ -1506,7 +1532,7 @@ async function updateProductLine(id) {
   const req = currentData.requirements.find(r => r.id === id);
   if (!req) return;
 
-  const oldPLs = Array.isArray(req.productLine) ? req.productLine : (req.productLine ? [req.productLine] : []);
+  const oldPLs = toArray(req.productLine);
   const oldPrimary = oldPLs[0] || '';
   const newPrimary = newPL || '未分类';
 
@@ -1578,40 +1604,11 @@ function editDueDate(el, reqId, currentValue) {
   });
 }
 
-// 归档需求
-async function archiveReq() {
-  if (!confirm('确定要归档这个需求吗？')) return;
-
-  try {
-    const res = await fetch(`/api/requirements/${currentReqId}/archive`, {
-      method: 'POST'
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      showToast(data.error || '归档失败', 'error');
-      return;
-    }
-    showToast('需求已归档');
-    await refreshData();
-
-    // 根据来源页面决定返回哪里
-    if (previousPage === 'archive') {
-      showArchivePage();
-    } else if (previousPage === 'home') {
-      showHome();
-    } else {
-      showList(currentProductLine);
-    }
-  } catch (e) {
-    console.error('归档失败:', e);
-    showToast('归档失败，请重试', 'error');
-  }
-}
 
 // 按状态筛选
 function filterByStatus(status) {
   const plReqs = currentData.requirements.filter(r => {
-    const pls = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
+    const pls = toArray(r.productLine);
     return pls.includes(currentProductLine) && r.status === status;
   });
   renderReqTable(plReqs);
@@ -1668,7 +1665,7 @@ function renderArchivePage() {
   // 按产品线 → 迭代 两级分组
   const groups = {};
   for (const req of archivedReqs) {
-    const pls = Array.isArray(req.productLine) ? req.productLine : (req.productLine ? [req.productLine] : ['未分类']);
+    const pls = toArray(req.productLine);
     for (const pl of pls) {
       if (!groups[pl]) groups[pl] = { _reqs: [], sprints: {} };
       groups[pl]._reqs.push(req);
@@ -1777,7 +1774,7 @@ async function unarchiveReq(id) {
     if (res.ok) {
       showToast(`需求 ${id} 已回退到需求池`, 'success');
       await refreshData();
-      renderArchive();
+      renderArchivePage();
     } else {
       const err = await res.json();
       alert(err.error || '回退失败');
@@ -1830,12 +1827,12 @@ function renderSettings() {
   const productLinesList = document.getElementById('product-lines-list');
   const settingsProductLines = settings.productLines || [];
   const reqProductLines = currentData.requirements.flatMap(r =>
-    Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : [])
+    toArray(r.productLine)
   );
   const productLines = [...new Set([...settingsProductLines, ...reqProductLines])];
   productLinesList.innerHTML = productLines.map(pl => {
     const count = currentData.requirements.filter(r => {
-      const pls = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
+      const pls = toArray(r.productLine);
       return pls.includes(pl);
     }).length;
     return `<div class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-ink-50 text-ink-800 rounded-full text-sm border border-ink-100 hover:border-ink-300 transition-colors">
@@ -2312,7 +2309,7 @@ function showCreateReqModal() {
   // 收集所有唯一产品线（合并 settings.productLines 和需求中的产品线）
   const settingsProductLines = settings.productLines || [];
   const reqProductLines = currentData.requirements.flatMap(r =>
-    Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : [])
+    toArray(r.productLine)
   );
   const productLines = [...new Set([...settingsProductLines, ...reqProductLines])];
 
@@ -2622,7 +2619,7 @@ function renderSprintBoard() {
     ? currentData.requirements.filter(r => !r.sprint)
     : currentData.requirements.filter(r => r.sprint === currentSprint);
   const reqProductLines = allReqs.flatMap(r => 
-    Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : [])
+    toArray(r.productLine)
   );
   const allProductLines = [...new Set([...settingsProductLines, ...reqProductLines])];
 
@@ -2642,7 +2639,7 @@ function renderSprintBoard() {
   const plFilter = cdGetValue('cd-sprint-pl-filter');
   if (plFilter) {
     sprintReqs = sprintReqs.filter(r => {
-      const pls = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
+      const pls = toArray(r.productLine);
       return pls.includes(plFilter);
     });
   }
@@ -2719,11 +2716,11 @@ function renderSprintKanbanBoard(reqs) {
                   <span class="font-mono text-xs text-ink-400">${req.id}</span>
                   <div class="flex items-center gap-1.5 text-xs text-ink-400" data-stop-click="true">
                     ${(() => {
-                      const pls = Array.isArray(req.productLine) ? req.productLine : (req.productLine ? [req.productLine] : []);
+                      const pls = toArray(req.productLine);
                       const allPls = new Set([
                         ...(settings.productLines || []),
                         ...currentData.requirements.flatMap(r => {
-                          const p = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
+                          const p = toArray(r.productLine);
                           return p;
                         })
                       ]);
@@ -2756,7 +2753,7 @@ function renderSprintReqTable(reqs) {
   }
 
   listContainer.innerHTML = reqs.map(req => {
-    const pls = Array.isArray(req.productLine) ? req.productLine : (req.productLine ? [req.productLine] : []);
+    const pls = toArray(req.productLine);
     return `
       <tr class="border-b border-ink-50 hover:bg-ink-50 transition-colors">
         <td class="px-5 py-4">
@@ -2770,11 +2767,11 @@ function renderSprintReqTable(reqs) {
         </td>
         <td class="px-5 py-4" data-stop-click="true">
           ${(() => {
-            const pls = Array.isArray(req.productLine) ? req.productLine : (req.productLine ? [req.productLine] : []);
+            const pls = toArray(req.productLine);
             const allPls = new Set([
               ...(settings.productLines || []),
               ...currentData.requirements.flatMap(r => {
-                const p = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
+                const p = toArray(r.productLine);
                 return p;
               })
             ]);
@@ -3086,7 +3083,7 @@ function renderArchivedDrafts() {
 function getAllProductLines() {
   const settingsProductLines = settings.productLines || [];
   const reqProductLines = currentData.requirements.flatMap(r =>
-    Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : [])
+    toArray(r.productLine)
   );
   return [...new Set([...settingsProductLines, ...reqProductLines])];
 }
