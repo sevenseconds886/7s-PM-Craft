@@ -787,17 +787,46 @@ function renderReqTable(reqs) {
   const listContainer = document.getElementById('requirements-list');
 
   if (reqs.length === 0) {
-    listContainer.innerHTML = '<tr><td colspan="11" class="px-5 py-12 text-center text-ink-500 text-sm">暂无需求</td></tr>';
+    listContainer.innerHTML = '<tr><td colspan="12" class="px-5 py-12 text-center text-ink-500 text-sm">暂无需求</td></tr>';
     return;
   }
 
-  listContainer.innerHTML = reqs.map(req => `
+  listContainer.innerHTML = reqs.map(req => {
+    // 原型标签
+    const hasWeb = req.hasPrototype && req.hasPrototype.web;
+    const hasMobile = req.hasPrototype && req.hasPrototype.mobile;
+    const protoBadges = [];
+    if (hasWeb) protoBadges.push('<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-terracotta/10 text-terracotta border border-terracotta/20">Web</span>');
+    if (hasMobile) protoBadges.push('<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600 border border-indigo-200">Mobile</span>');
+    const protoHtml = protoBadges.length > 0 ? `<div class="flex gap-1">${protoBadges.join('')}</div>` : '<span class="text-xs text-ink-400">-</span>';
+
+    // 产品线标签（可编辑）
+    const pls = Array.isArray(req.productLine) ? req.productLine : (req.productLine ? [req.productLine] : []);
+    // 合并所有来源的产品线：settings + 所有需求元数据 + 当前需求自身
+    const allPls = new Set([
+      ...(settings.productLines || []),
+      ...currentData.requirements.flatMap(r => {
+        const p = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
+        return p;
+      })
+    ]);
+    if (pls.length > 0) allPls.add(pls[0]);
+    const plOptions = [
+      {value: '', label: '未分类'},
+      ...Array.from(allPls).filter(p => p && p !== '未分类').sort().map(p => ({value: p, label: p}))
+    ];
+    const plValue = pls.length > 0 ? pls[0] : '';
+
+    return `
     <tr class="border-b border-ink-50 hover:bg-ink-50 transition-colors">
       <td class="px-5 py-4">
         <span class="font-mono text-sm text-ink-500">${req.id}</span>
       </td>
       <td class="px-5 py-4">
         <div class="text-sm text-ink-800 cursor-pointer hover:text-ink-600 transition-colors" onclick="showDetail('${req.id}')">${req.title}</div>
+      </td>
+      <td class="px-5 py-4" data-stop-click="true">
+        ${cdRender({ id: `cd-pl-${req.id}`, value: plValue, options: plOptions, style: 'pill', colorType: '', onChange: `updateProductLine('${req.id}')`, stopClick: true })}
       </td>
       <td class="px-5 py-4">
         ${cdRender({ id: `cd-status-${req.id}`, value: req.status, options: (settings.statusList || []).map(s => ({value: s, label: s})), style: 'pill', colorType: 'status', onChange: `updateStatus('${req.id}')`, stopClick: true })}
@@ -806,8 +835,8 @@ function renderReqTable(reqs) {
         ${cdRender({ id: `cd-sprint-${req.id}`, value: req.sprint || '', options: [{value: '', label: '未分配'}, ...currentData.sprints.filter(s => s.status === 'active').map(s => ({value: s.name, label: s.name}))], style: 'pill', colorType: '', onChange: `updateSprint('${req.id}')`, stopClick: true })}
       </td>
       <td class="px-5 py-4 text-sm text-ink-500">${(req.platform || ['web']).join(', ')}</td>
+      <td class="px-5 py-4">${protoHtml}</td>
       <td class="px-5 py-4 text-sm text-ink-500">${req.developer || '-'}</td>
-      <td class="px-5 py-4 text-sm text-ink-500">${req.requester || '-'}</td>
       <td class="px-5 py-4 text-sm text-ink-500">${formatDate(req.created)}</td>
       <td class="px-5 py-4" data-stop-click="true">
         <span class="text-sm text-ink-500 cursor-pointer hover:text-ink-700 hover:bg-ink-50 rounded px-2 py-1 transition-colors" onclick="editDueDate(this, '${req.id}', '${req.due_date || ''}')">${formatDate(req.due_date)}</span>
@@ -824,7 +853,7 @@ function renderReqTable(reqs) {
         </button>
       </td>
     </tr>
-  `).join('');
+  `}).join('');
 }
 
 // 看板拖拽事件
@@ -970,54 +999,59 @@ function renderDetail() {
 function loadPrototype(req) {
   const frame = document.getElementById('prototype-frame');
   const container = document.getElementById('prototype-container');
+  const prototypeArea = document.getElementById('prototype-area');
+  const docPanel = document.getElementById('doc-panel');
+  const docResizer = document.getElementById('doc-resizer');
+  const docToggleBtn = document.getElementById('doc-toggle-btn');
+  const protoFullscreenBtn = document.getElementById('proto-fullscreen-btn');
   const platform = currentPlatform || (req.platform || ['web'])[0];
   const protoKey = platform === 'mobile' ? 'mobile' : 'web';
 
   // 检查原型文件是否存在
   if (!req.hasPrototype || !req.hasPrototype[protoKey]) {
-    // 无原型时，直接在原型区域展示 PRD 文档（使用智能渲染引擎）
-    frame.src = 'about:blank';
-    
-    // 解析 YAML + 渲染增强文档
-    const rawBody = req.body || '';
-    const { meta, body } = parseYamlFrontMatter(rawBody);
-    const hasYaml = Object.keys(meta).length > 0;
-    const processedHtml = marked.parse(body || '*暂无文档内容*')
-      .replace(/<a href="([^"]+)"/g, (m, href) => {
-        if (href.startsWith('http') || href.startsWith('//')) {
-          return `<a href="${href}" target="_blank" rel="noopener"`;
-        }
-        return m;
-      });
-    
-    container.innerHTML = `
-      <div class="w-full h-full bg-white rounded-2xl shadow-lg overflow-hidden flex flex-col">
-        <div class="flex-1 overflow-y-auto p-6">
-          ${hasYaml ? renderDocMetaBar(meta) : ''}
-          <div class="prose prose-sm max-w-none text-ink-700">
-            ${processedHtml}
-          </div>
-        </div>
-      </div>
-    `;
-    
-    // 设置容器尺寸
-    if (platform === 'mobile') {
-      container.style.width = '520px';
-      container.style.height = '1126px';
-      container.style.maxWidth = '520px';
-    } else {
-      container.style.width = '100%';
-      container.style.height = '100%';
-      container.style.maxWidth = 'none';
-      container.style.maxHeight = 'none';
+    // 无原型时：隐藏原型区域，文档面板全屏
+    prototypeArea.classList.add('hidden');
+    docResizer.style.display = 'none';
+    docPanel.classList.remove('hidden');
+    docPanel.style.flex = '1';
+    docPanel.style.width = '100%';
+    docPanel.style.maxWidth = 'none';
+    docPanel.style.minWidth = '0';
+    if (docToggleBtn) {
+      docToggleBtn.classList.add('bg-ink-800', 'text-white', 'border-ink-400');
+      docToggleBtn.classList.remove('text-ink-600', 'border-ink-400');
     }
+    if (protoFullscreenBtn) protoFullscreenBtn.classList.add('hidden');
+    docPanelOpen = true;
+
+    // 清空原型容器
+    container.innerHTML = `<iframe id="prototype-frame" class="w-full h-full border-0"></iframe>`;
+    frame = document.getElementById('prototype-frame');
+    if (frame) frame.src = 'about:blank';
     return;
   }
 
+  // 有原型时：恢复三栏布局
+  prototypeArea.classList.remove('hidden');
+  if (protoFullscreenBtn) protoFullscreenBtn.classList.remove('hidden');
+
+  // 重置文档面板样式
+  docPanel.style.flex = '';
+  docPanel.style.width = '380px';
+  docPanel.style.maxWidth = '600px';
+  docPanel.style.minWidth = '260px';
+
+  // 按当前 docPanelOpen 状态控制文档面板
+  if (docPanelOpen) {
+    docPanel.classList.remove('hidden');
+    docResizer.style.display = '';
+  } else {
+    docPanel.classList.add('hidden');
+    docResizer.style.display = 'none';
+  }
+
   const primaryPL = Array.isArray(req.productLine) ? req.productLine[0] : req.productLine;
-  const protoFile = `/products/${encodeURIComponent(primaryPL)}/${encodeURIComponent(req.folderName)}/prototype-${platform}.html`;
-  frame.src = protoFile;
+  const protoFile = `/products/${encodeURIComponent(primaryPL || '未分类')}/${encodeURIComponent(req.folderName)}/prototype-${platform}.html`;
 
   // 有原型时，恢复 iframe 结构
   container.innerHTML = `<iframe id="prototype-frame" class="w-full h-full border-0"></iframe>`;
@@ -1466,6 +1500,39 @@ async function updateSprint(id, sprint) {
   }
 }
 
+// 更新产品线（含物理文件夹迁移）
+async function updateProductLine(id) {
+  const newPL = cdGetValue(`cd-pl-${id}`);
+  const req = currentData.requirements.find(r => r.id === id);
+  if (!req) return;
+
+  const oldPLs = Array.isArray(req.productLine) ? req.productLine : (req.productLine ? [req.productLine] : []);
+  const oldPrimary = oldPLs[0] || '';
+  const newPrimary = newPL || '未分类';
+
+  if (oldPrimary === newPrimary) return;
+
+  try {
+    const res = await fetch(`/api/requirements/${id}/product-line`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product_line: [newPrimary] })
+    });
+    if (res.ok) {
+      await refreshData();
+      showToast('产品线已更新', 'success');
+    } else {
+      const err = await res.json();
+      showToast(err.error || '更新失败', 'error');
+      await refreshData();
+    }
+  } catch (e) {
+    console.error('更新产品线失败:', e);
+    showToast('更新失败', 'error');
+    await refreshData();
+  }
+}
+
 // 更新预计上线时间
 async function updateDueDate(id, due_date) {
   try {
@@ -1670,6 +1737,7 @@ function renderArchivePage() {
                       <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:90px">优先级</th>
                       <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:100px">开发</th>
                       <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:110px">归档时间</th>
+                      <th class="px-4 py-3 text-left text-xs font-semibold text-ink-500 uppercase tracking-wider" style="width:80px">操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1677,10 +1745,17 @@ function renderArchivePage() {
                       <tr class="cursor-pointer hover:bg-ink-50/60 transition-colors ${idx !== reqs.length - 1 ? 'border-b border-ink-100' : ''}" onclick="showDetail('${req.id}', 'archive')">
                         <td class="px-4 py-3.5"><span class="font-mono text-sm text-ink-500">${req.id}</span></td>
                         <td class="px-4 py-3.5"><span class="text-sm text-ink-800 font-medium">${req.title}</span></td>
-                        <td class="px-4 py-3.5"><span class="status-badge status-${req.status}">${req.status}</span></td>
-                        <td class="px-4 py-3.5"><span class="priority-badge priority-${req.priority}">${req.priority}</span></td>
+                        <td class="px-4 py-3.5"><span class="static-pill sp-status-${req.status}">${req.status}</span></td>
+                        <td class="px-4 py-3.5"><span class="static-pill sp-priority-${req.priority}">${req.priority}</span></td>
                         <td class="px-4 py-3.5 text-sm text-ink-500">${req.developer || '-'}</td>
                         <td class="px-4 py-3.5 text-sm text-ink-500">${formatDate(req.updated)}</td>
+                        <td class="px-4 py-3.5" data-stop-click="true">
+                          <button onclick="event.stopPropagation(); unarchiveReq('${req.id}')"
+                                  class="p-1.5 rounded-full text-ink-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                                  title="回退到需求池" draggable="false">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M8 3L4 7M8 3l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                          </button>
+                        </td>
                       </tr>
                     `).join('')}
                   </tbody>
@@ -1692,6 +1767,24 @@ function renderArchivePage() {
       </div>
     </div>
   `).join('');
+}
+
+// 回退归档需求
+async function unarchiveReq(id) {
+  if (!confirm(`确定将需求 ${id} 从归档中回退吗？\n回退后状态将重置为「设计中」，迭代将被清除，需重新分配。`)) return;
+  try {
+    const res = await fetch(`/api/requirements/${id}/unarchive`, { method: 'POST' });
+    if (res.ok) {
+      showToast(`需求 ${id} 已回退到需求池`, 'success');
+      await refreshData();
+      renderArchive();
+    } else {
+      const err = await res.json();
+      alert(err.error || '回退失败');
+    }
+  } catch (e) {
+    alert('回退失败: ' + e.message);
+  }
 }
 
 // 归档迭代
@@ -1745,48 +1838,53 @@ function renderSettings() {
       const pls = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
       return pls.includes(pl);
     }).length;
-    const isFromSettings = settingsProductLines.includes(pl);
-    return `<span class="px-3 py-1.5 bg-ink-50 text-ink-800 rounded-full text-sm">${pl} <span class="text-ink-500 ml-1">(${count})</span></span>`;
+    return `<div class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-ink-50 text-ink-800 rounded-full text-sm border border-ink-100 hover:border-ink-300 transition-colors">
+      <span>${pl}</span>
+      <span class="text-ink-400 text-xs">(${count})</span>
+      <button onclick="removeProductLineFromSettings('${pl.replace(/'/g, "\\'")}')" class="w-4 h-4 rounded-full hover:bg-red-100 flex items-center justify-center text-ink-400 hover:text-red-500 transition-colors" title="删除产品线">
+        <svg width="8" height="8" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>`;
   }).join('') || '<span class="text-sm text-ink-500">暂无产品线</span>';
 
-  // 状态列表 - 可编辑/删除
+  // 状态列表 - 可编辑/删除（胶囊样式）
   const statusListDisplay = document.getElementById('status-list-display');
   statusListDisplay.innerHTML = (settings.statusList || []).map((s, idx) => `
-    <div class="status-item inline-flex items-center gap-1.5" data-status-idx="${idx}">
-      <span class="status-badge status-${s} view-mode">${s}</span>
-      <input type="text" value="${s}" class="edit-mode hidden px-2 py-1 text-xs border border-ink-200 rounded-lg focus:outline-none focus:border-ink-400 w-24" data-original="${s}" onkeydown="if(event.key==='Enter')saveStatusEdit(${idx})" onblur="cancelStatusEdit(${idx})">
-      <button onclick="startEditStatus(${idx})" class="view-mode w-5 h-5 rounded hover:bg-ink-50 flex items-center justify-center text-ink-500 hover:text-ink-800 transition-colors" title="编辑">
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M11 2L14 5M2 14l3-1 8-8-3-3-8 8-1 3z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="status-item inline-flex items-center gap-1 px-3 py-1.5 bg-ink-50 rounded-full text-sm border border-ink-100 hover:border-ink-300 transition-colors" data-status-idx="${idx}">
+      <span class="view-mode text-ink-800">${s}</span>
+      <input type="text" value="${s}" class="edit-mode hidden px-2 py-0.5 text-sm border border-ink-200 rounded-lg focus:outline-none focus:border-ink-400 w-24 bg-white" data-original="${s}" onkeydown="if(event.key==='Enter')saveStatusEdit(${idx})" onblur="cancelStatusEdit(${idx})">
+      <button onclick="startEditStatus(${idx})" class="view-mode w-4 h-4 rounded-full hover:bg-ink-200 flex items-center justify-center text-ink-400 hover:text-ink-700 transition-colors" title="编辑">
+        <svg width="8" height="8" viewBox="0 0 16 16" fill="none"><path d="M11 2L14 5M2 14l3-1 8-8-3-3-8 8-1 3z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <button onclick="saveStatusEdit(${idx})" class="edit-mode hidden w-5 h-5 rounded hover:bg-green-50 flex items-center justify-center text-green-600 transition-colors" title="保存">
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <button onclick="saveStatusEdit(${idx})" class="edit-mode hidden w-4 h-4 rounded-full hover:bg-green-100 flex items-center justify-center text-green-600 transition-colors" title="保存">
+        <svg width="8" height="8" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <button onclick="cancelStatusEdit(${idx})" class="edit-mode hidden w-5 h-5 rounded hover:bg-ink-50 flex items-center justify-center text-ink-500 hover:text-ink-800 transition-colors" title="取消">
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <button onclick="cancelStatusEdit(${idx})" class="edit-mode hidden w-4 h-4 rounded-full hover:bg-ink-200 flex items-center justify-center text-ink-400 hover:text-ink-700 transition-colors" title="取消">
+        <svg width="8" height="8" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       </button>
-      <button onclick="removeStatusFromSettings(${idx})" class="view-mode w-5 h-5 rounded hover:bg-red-50 flex items-center justify-center text-ink-500 hover:text-red-500 transition-colors" title="删除">
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <button onclick="removeStatusFromSettings(${idx})" class="view-mode w-4 h-4 rounded-full hover:bg-red-100 flex items-center justify-center text-ink-400 hover:text-red-500 transition-colors" title="删除">
+        <svg width="8" height="8" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       </button>
     </div>
   `).join('');
 
-  // 优先级列表 - 可编辑/删除
+  // 优先级列表 - 可编辑/删除（胶囊样式）
   const priorityListDisplay = document.getElementById('priority-list-display');
   priorityListDisplay.innerHTML = (settings.priorityList || []).map((p, idx) => `
-    <div class="priority-item inline-flex items-center gap-1.5" data-priority-idx="${idx}">
-      <span class="priority-badge priority-${p} view-mode">${p}</span>
-      <input type="text" value="${p}" class="edit-mode hidden px-2 py-1 text-xs border border-ink-200 rounded-lg focus:outline-none focus:border-ink-400 w-16" data-original="${p}" onkeydown="if(event.key==='Enter')savePriorityEdit(${idx})" onblur="cancelPriorityEdit(${idx})">
-      <button onclick="startEditPriority(${idx})" class="view-mode w-5 h-5 rounded hover:bg-ink-50 flex items-center justify-center text-ink-500 hover:text-ink-800 transition-colors" title="编辑">
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M11 2L14 5M2 14l3-1 8-8-3-3-8 8-1 3z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="priority-item inline-flex items-center gap-1 px-3 py-1.5 bg-ink-50 rounded-full text-sm border border-ink-100 hover:border-ink-300 transition-colors" data-priority-idx="${idx}">
+      <span class="view-mode text-ink-800">${p}</span>
+      <input type="text" value="${p}" class="edit-mode hidden px-2 py-0.5 text-sm border border-ink-200 rounded-lg focus:outline-none focus:border-ink-400 w-16 bg-white" data-original="${p}" onkeydown="if(event.key==='Enter')savePriorityEdit(${idx})" onblur="cancelPriorityEdit(${idx})">
+      <button onclick="startEditPriority(${idx})" class="view-mode w-4 h-4 rounded-full hover:bg-ink-200 flex items-center justify-center text-ink-400 hover:text-ink-700 transition-colors" title="编辑">
+        <svg width="8" height="8" viewBox="0 0 16 16" fill="none"><path d="M11 2L14 5M2 14l3-1 8-8-3-3-8 8-1 3z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <button onclick="savePriorityEdit(${idx})" class="edit-mode hidden w-5 h-5 rounded hover:bg-green-50 flex items-center justify-center text-green-600 transition-colors" title="保存">
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <button onclick="savePriorityEdit(${idx})" class="edit-mode hidden w-4 h-4 rounded-full hover:bg-green-100 flex items-center justify-center text-green-600 transition-colors" title="保存">
+        <svg width="8" height="8" viewBox="0 0 16 16" fill="none"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <button onclick="cancelPriorityEdit(${idx})" class="edit-mode hidden w-5 h-5 rounded hover:bg-ink-50 flex items-center justify-center text-ink-500 hover:text-ink-800 transition-colors" title="取消">
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <button onclick="cancelPriorityEdit(${idx})" class="edit-mode hidden w-4 h-4 rounded-full hover:bg-ink-200 flex items-center justify-center text-ink-400 hover:text-ink-700 transition-colors" title="取消">
+        <svg width="8" height="8" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       </button>
-      <button onclick="removePriorityFromSettings(${idx})" class="view-mode w-5 h-5 rounded hover:bg-red-50 flex items-center justify-center text-ink-500 hover:text-red-500 transition-colors" title="删除">
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <button onclick="removePriorityFromSettings(${idx})" class="view-mode w-4 h-4 rounded-full hover:bg-red-100 flex items-center justify-center text-ink-400 hover:text-red-500 transition-colors" title="删除">
+        <svg width="8" height="8" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       </button>
     </div>
   `).join('');
@@ -1953,25 +2051,52 @@ async function addProductLineFromSettings() {
     return;
   }
 
-  // 保存到 settings
-  const newProductLines = [...currentProductLines, name];
+  // 创建产品线（API 会同时创建目录 + .gitkeep + 保存到 settings）
   try {
-    const res = await fetch('/api/settings', {
+    const res = await fetch('/api/product-lines', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ productLines: newProductLines })
+      body: JSON.stringify({ name })
     });
     if (res.ok) {
-      settings.productLines = newProductLines;
+      const data = await res.json();
+      settings.productLines = data.productLines;
       input.value = '';
       renderSettings();
-      // 刷新首页数据并重新渲染
       await refreshData();
     } else {
-      alert('保存失败');
+      const err = await res.json();
+      alert(err.error || '保存失败');
     }
   } catch (e) {
     alert('保存失败: ' + e.message);
+  }
+}
+
+// 从设置中删除产品线
+async function removeProductLineFromSettings(name) {
+  if (!confirm(`确定删除产品线「${name}」吗？\n该产品线下的需求将移至「未分类」。`)) return;
+
+  try {
+    const res = await fetch(`/api/product-lines/${encodeURIComponent(name)}`, {
+      method: 'DELETE'
+    });
+    if (res.ok) {
+      const data = await res.json();
+      settings.productLines = data.productLines || settings.productLines.filter(pl => pl !== name);
+      if (data.movedCount > 0) {
+        showToast(`已删除产品线「${name}」，${data.movedCount} 个需求移至「未分类」`, 'success');
+      } else {
+        showToast(`已删除产品线「${name}」`, 'success');
+      }
+      renderSettings();
+      await refreshData();
+    } else {
+      const err = await res.json();
+      alert(err.error || '删除失败');
+    }
+  } catch (e) {
+    alert('删除失败: ' + e.message);
   }
 }
 

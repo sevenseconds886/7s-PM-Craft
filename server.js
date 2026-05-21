@@ -5,6 +5,15 @@ const path = require('path');
 const yaml = require('js-yaml');
 const { execSync } = require('child_process');
 
+// 全局未捕获异常处理——防止进程崩溃
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT EXCEPTION]', err.message);
+  // 不退出进程，保持服务运行
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[UNHANDLED REJECTION]', reason);
+});
+
 const app = express();
 const PORT = process.env.PORT || 3456;
 const WORKSPACE = path.resolve(__dirname);
@@ -653,7 +662,7 @@ app.delete('/api/drafts/:id', (req, res) => {
     if (draft.folderPath && fs.existsSync(draft.folderPath)) {
       // 新格式：删除整个文件夹（使用 shell 命令避免 Git Bash 环境下 fs.rmSync 的问题）
       try {
-        execSync(`rm -rf "${draft.folderPath}"`, { stdio: 'ignore' });
+        execSync(`rm -rf "${draft.folderPath}"`, { stdio: 'ignore', windowsHide: true });
       } catch (e) {
         // 如果 shell 命令失败，尝试使用 fs.rmSync
         fs.rmSync(draft.folderPath, { recursive: true, force: true });
@@ -973,6 +982,108 @@ app.post('/api/requirements/:id/archive', (req, res) => {
   } catch (err) {
     console.error('归档需求失败:', err);
     res.status(500).json({ error: '归档失败: ' + err.message });
+  }
+});
+
+// API：回退归档需求（从 archive 移回 products，清除迭代）
+app.post('/api/requirements/:id/unarchive', (req, res) => {
+  try {
+    const archiveDir = path.join(WORKSPACE, 'archive');
+    let foundReq = null;
+    let foundSourceDir = null;
+    let foundProductLine = null;
+
+    // 在 archive 下查找该需求
+    if (fs.existsSync(archiveDir)) {
+      const plDirs = fs.readdirSync(archiveDir, { withFileTypes: true }).filter(d => d.isDirectory());
+      for (const plD of plDirs) {
+        const plPath = path.join(archiveDir, plD.name);
+        const entries = fs.readdirSync(plPath, { withFileTypes: true })
+          .filter(d => d.isDirectory() && d.name.startsWith('REQ-'));
+        for (const entry of entries) {
+          const reqDir = path.join(plPath, entry.name);
+          const reqFile = path.join(reqDir, 'requirement.md');
+          if (!fs.existsSync(reqFile)) continue;
+          try {
+            const content = fs.readFileSync(reqFile, 'utf-8');
+            const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+            if (match) {
+              const fm = yaml.load(match[1]);
+              if (fm.id === req.params.id) {
+                foundReq = fm;
+                foundSourceDir = reqDir;
+                foundProductLine = plD.name;
+                break;
+              }
+            }
+          } catch (e) {}
+        }
+        if (foundReq) break;
+      }
+    }
+
+    if (!foundReq || !foundSourceDir) {
+      return res.status(404).json({ error: '归档需求不存在' });
+    }
+
+    // 目标目录：products/产品线/REQ-xxx（如果原产品线不存在则归到「未分类」）
+    const folderName = path.basename(foundSourceDir);
+    const productsPlDir = path.join(WORKSPACE, 'products', foundProductLine);
+    let targetProductLine = foundProductLine;
+    if (!fs.existsSync(productsPlDir)) {
+      targetProductLine = '未分类';
+    }
+    const targetDir = path.join(WORKSPACE, 'products', targetProductLine, folderName);
+
+    // 确保 products 产品线目录存在
+    const targetPlDir = path.join(WORKSPACE, 'products', targetProductLine);
+    if (!fs.existsSync(targetPlDir)) {
+      fs.mkdirSync(targetPlDir, { recursive: true });
+      const gitkeepPath = path.join(targetPlDir, '.gitkeep');
+      if (!fs.existsSync(gitkeepPath)) {
+        fs.writeFileSync(gitkeepPath, '');
+      }
+    }
+
+    if (fs.existsSync(targetDir)) {
+      return res.status(400).json({ error: '目标位置已存在同名需求' });
+    }
+
+    // 移动文件夹（用 execSync 避免中文路径 segfault）
+    try {
+      execSync(`xcopy "${foundSourceDir}" "${targetDir}" /E /I /Y /Q`, { stdio: 'pipe', windowsHide: true });
+      execSync(`rmdir /S /Q "${foundSourceDir}"`, { stdio: 'pipe', windowsHide: true });
+    } catch (e) {
+      return res.status(500).json({ error: '文件移动失败: ' + e.message });
+    }
+
+    // 更新需求元数据：清除迭代、重置状态为"设计中"、更新产品线
+    const newReqFile = path.join(targetDir, 'requirement.md');
+    const content = fs.readFileSync(newReqFile, 'utf-8');
+    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    if (match) {
+      const frontMatter = yaml.load(match[1]);
+      frontMatter.status = '设计中';
+      delete frontMatter.sprint;
+      // 如果产品线变了（原产品线不存在，归到了未分类），更新 product_line
+      if (targetProductLine !== foundProductLine) {
+        let pls = frontMatter.product_line;
+        if (typeof pls === 'string') pls = [pls];
+        if (Array.isArray(pls)) {
+          frontMatter.product_line = pls.map(pl => pl === foundProductLine ? targetProductLine : pl);
+        } else {
+          frontMatter.product_line = [targetProductLine];
+        }
+      }
+      frontMatter.updated = new Date().toISOString().split('T')[0];
+      const newContent = `---\n${yaml.dump(frontMatter)}---\n${match[2]}`;
+      fs.writeFileSync(newReqFile, newContent);
+    }
+
+    res.json({ success: true, id: req.params.id, productLine: targetProductLine });
+  } catch (err) {
+    console.error('回退归档需求失败:', err);
+    res.status(500).json({ error: '回退失败: ' + err.message });
   }
 });
 
@@ -1344,6 +1455,11 @@ app.post('/api/product-lines', (req, res) => {
     if (!fs.existsSync(plDir)) {
       fs.mkdirSync(plDir, { recursive: true });
     }
+    // 放置 .gitkeep 确保空目录可见且 Git 可追踪
+    const gitkeepPath = path.join(plDir, '.gitkeep');
+    if (!fs.existsSync(gitkeepPath)) {
+      fs.writeFileSync(gitkeepPath, '');
+    }
 
     // 保存到 settings
     settings.productLines = [...productLines, name];
@@ -1353,6 +1469,241 @@ app.post('/api/product-lines', (req, res) => {
   } catch (err) {
     console.error('创建产品线失败:', err);
     res.status(500).json({ error: '创建失败: ' + err.message });
+  }
+});
+
+// API：删除产品线（需求归入"未分类"）
+app.delete('/api/product-lines/:name', async (req, res) => {
+  try {
+    const { name } = req.params;
+    if (name === '未分类') {
+      return res.status(400).json({ error: '不能删除「未分类」' });
+    }
+    const settings = getSettings();
+    const productLines = settings.productLines || [];
+
+    // 辅助函数：安全移动目录（用 execSync 调 Windows 命令，绕开 Node fs 中文路径 segfault）
+    function safeMoveDir(srcDir, dstDir) {
+      try {
+        execSync(`xcopy "${srcDir}" "${dstDir}" /E /I /Y /Q`, { stdio: 'pipe', windowsHide: true });
+        execSync(`rmdir /S /Q "${srcDir}"`, { stdio: 'pipe', windowsHide: true });
+        return true;
+      } catch (e) {
+        console.error(`safeMoveDir 失败: ${srcDir} → ${dstDir}`, e.message);
+        return false;
+      }
+    }
+
+    // 辅助函数：更新 requirement.md 的 product_line 字段
+    function updateReqProductLine(reqDir, oldName, newName) {
+      const reqFile = path.join(reqDir, 'requirement.md');
+      if (!fs.existsSync(reqFile)) return;
+      try {
+        const content = fs.readFileSync(reqFile, 'utf-8');
+        const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+        if (match) {
+          const frontMatter = yaml.load(match[1]);
+          let pls = frontMatter.product_line;
+          if (typeof pls === 'string') pls = [pls];
+          if (Array.isArray(pls)) {
+            frontMatter.product_line = pls.map(pl => pl === oldName ? newName : pl);
+          } else {
+            frontMatter.product_line = [newName];
+          }
+          frontMatter.updated = new Date().toISOString().split('T')[0];
+          const newContent = `---\n${yaml.dump(frontMatter)}---\n${match[2]}`;
+          fs.writeFileSync(reqFile, newContent);
+        }
+      } catch (yamlErr) {
+        console.error(`更新 ${reqDir} 的 product_line 失败:`, yamlErr.message);
+      }
+    }
+
+    let movedCount = 0;
+    const plDir = path.join(WORKSPACE, 'products', name);
+    const archivePlDir = path.join(WORKSPACE, 'archive', name);
+
+    // 移动 products 目录下的需求
+    if (fs.existsSync(plDir)) {
+      const uncategorizedDir = path.join(WORKSPACE, 'products', '未分类');
+      if (!fs.existsSync(uncategorizedDir)) {
+        fs.mkdirSync(uncategorizedDir, { recursive: true });
+      }
+      const gitkeepPath = path.join(uncategorizedDir, '.gitkeep');
+      if (!fs.existsSync(gitkeepPath)) {
+        fs.writeFileSync(gitkeepPath, '');
+      }
+
+      const entries = fs.readdirSync(plDir, { withFileTypes: true })
+        .filter(d => d.isDirectory() && d.name.startsWith('REQ-'));
+
+      for (const entry of entries) {
+        const srcPath = path.join(plDir, entry.name);
+        const dstPath = path.join(uncategorizedDir, entry.name);
+        if (fs.existsSync(dstPath)) continue;
+        updateReqProductLine(srcPath, name, '未分类');
+        if (safeMoveDir(srcPath, dstPath)) {
+          movedCount++;
+        }
+      }
+
+      // 删除原产品线目录
+      try {
+        execSync(`rmdir /S /Q "${plDir}"`, { stdio: 'pipe', windowsHide: true });
+      } catch (e) {}
+    }
+
+    // 移动 archive 目录下的需求
+    if (fs.existsSync(archivePlDir)) {
+      const archiveUncategorized = path.join(WORKSPACE, 'archive', '未分类');
+      if (!fs.existsSync(archiveUncategorized)) {
+        fs.mkdirSync(archiveUncategorized, { recursive: true });
+      }
+
+      const archiveEntries = fs.readdirSync(archivePlDir, { withFileTypes: true })
+        .filter(d => d.isDirectory() && d.name.startsWith('REQ-'));
+
+      for (const entry of archiveEntries) {
+        const srcPath = path.join(archivePlDir, entry.name);
+        const dstPath = path.join(archiveUncategorized, entry.name);
+        if (fs.existsSync(dstPath)) continue;
+        updateReqProductLine(srcPath, name, '未分类');
+        if (safeMoveDir(srcPath, dstPath)) {
+          movedCount++;
+        }
+      }
+
+      try {
+        execSync(`rmdir /S /Q "${archivePlDir}"`, { stdio: 'pipe', windowsHide: true });
+      } catch (e) {}
+    }
+
+    // 扫描所有需求的 product_line 元数据，将引用该产品线的需求更新为"未分类"
+    // （处理磁盘上文件夹不存在但元数据中还引用该产品线的情况）
+    const allDirs = [WORKSPACE, WORKSPACE];
+    const scanDirs = [
+      { base: path.join(WORKSPACE, 'products'), reqDirs: [] },
+      { base: path.join(WORKSPACE, 'archive'), reqDirs: [] }
+    ];
+    for (const scan of scanDirs) {
+      if (!fs.existsSync(scan.base)) continue;
+      const plDirs = fs.readdirSync(scan.base, { withFileTypes: true }).filter(d => d.isDirectory());
+      for (const plD of plDirs) {
+        const plPath = path.join(scan.base, plD.name);
+        try {
+          const entries = fs.readdirSync(plPath, { withFileTypes: true })
+            .filter(d => d.isDirectory() && d.name.startsWith('REQ-'));
+          for (const entry of entries) {
+            const reqDir = path.join(plPath, entry.name);
+            const reqFile = path.join(reqDir, 'requirement.md');
+            if (!fs.existsSync(reqFile)) continue;
+            try {
+              const content = fs.readFileSync(reqFile, 'utf-8');
+              const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+              if (match) {
+                const frontMatter = yaml.load(match[1]);
+                let pls = frontMatter.product_line;
+                if (typeof pls === 'string') pls = [pls];
+                if (Array.isArray(pls) && pls.includes(name)) {
+                  frontMatter.product_line = pls.map(pl => pl === name ? '未分类' : pl);
+                  frontMatter.updated = new Date().toISOString().split('T')[0];
+                  const newContent = `---\n${yaml.dump(frontMatter)}---\n${match[2]}`;
+                  fs.writeFileSync(reqFile, newContent);
+                  movedCount++;
+                }
+              }
+            } catch (e) {}
+          }
+        } catch (e) {}
+      }
+    }
+
+    // 从 settings 中移除产品线
+    settings.productLines = productLines.filter(pl => pl !== name);
+    // 如果"未分类"不在列表中且移动了需求，添加它
+    if (!settings.productLines.includes('未分类') && movedCount > 0) {
+      settings.productLines.push('未分类');
+    }
+    saveSettings(settings);
+
+    res.json({ success: true, deletedProductLine: name, movedCount, productLines: settings.productLines });
+  } catch (err) {
+    console.error('删除产品线失败:', err);
+    res.status(500).json({ error: '删除失败: ' + err.message });
+  }
+});
+
+// API：修改需求产品线（含物理文件夹迁移）
+app.post('/api/requirements/:id/product-line', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { product_line } = req.body;
+
+    if (!Array.isArray(product_line)) {
+      return res.status(400).json({ error: 'product_line 必须是数组' });
+    }
+
+    // 找到需求
+    const requirement = scanRequirements().find(r => r.id === id);
+    if (!requirement) {
+      return res.status(404).json({ error: '需求不存在' });
+    }
+
+    const oldPLs = Array.isArray(requirement.productLine) ? requirement.productLine : (requirement.productLine ? [requirement.productLine] : []);
+    const oldPrimary = oldPLs[0] || '未分类';
+    const newPrimary = product_line[0] || '未分类';
+
+    // 读取并更新 requirement.md
+    const content = fs.readFileSync(requirement.bodyPath, 'utf-8');
+    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    if (!match) {
+      return res.status(500).json({ error: '需求文件格式错误' });
+    }
+
+    const frontMatter = yaml.load(match[1]);
+    frontMatter.product_line = product_line;
+    frontMatter.updated = new Date().toISOString().split('T')[0];
+    const newContent = `---\n${yaml.dump(frontMatter)}---\n${match[2]}`;
+
+    // 如果主产品线变更，需要物理移动文件夹
+    if (oldPrimary !== newPrimary) {
+      const isArchive = requirement.isArchive;
+      const baseDir = isArchive ? 'archive' : 'products';
+      const srcDir = path.join(WORKSPACE, baseDir, oldPrimary, requirement.folderName);
+      const dstDir = path.join(WORKSPACE, baseDir, newPrimary, requirement.folderName);
+
+      // 确保目标产品线目录存在
+      if (!fs.existsSync(path.join(WORKSPACE, baseDir, newPrimary))) {
+        fs.mkdirSync(path.join(WORKSPACE, baseDir, newPrimary), { recursive: true });
+        const gitkeepPath = path.join(WORKSPACE, baseDir, newPrimary, '.gitkeep');
+        if (!fs.existsSync(gitkeepPath)) {
+          fs.writeFileSync(gitkeepPath, '');
+        }
+      }
+
+      // 先写回文件（在原位置）
+      fs.writeFileSync(requirement.bodyPath, newContent);
+
+      // 移动文件夹（用 Windows 命令，绕开 Node fs 中文路径 segfault）
+      if (fs.existsSync(srcDir)) {
+        try {
+          execSync(`xcopy "${srcDir}" "${dstDir}" /E /I /Y /Q`, { stdio: 'pipe', windowsHide: true });
+          execSync(`rmdir /S /Q "${srcDir}"`, { stdio: 'pipe', windowsHide: true });
+        } catch (e) {
+          console.error('移动需求文件夹失败:', e.message);
+        }
+      }
+    } else {
+      // 只更新文件内容
+      fs.writeFileSync(requirement.bodyPath, newContent);
+    }
+
+    // 返回更新后的数据
+    const updatedReq = scanRequirements().find(r => r.id === id);
+    res.json({ success: true, requirement: updatedReq || { id, product_line } });
+  } catch (err) {
+    console.error('修改产品线失败:', err);
+    res.status(500).json({ error: '修改失败: ' + err.message });
   }
 });
 

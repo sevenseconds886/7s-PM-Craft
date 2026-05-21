@@ -140,6 +140,26 @@
     .cdropdown-pill.cd-status-已完成 .cdropdown-trigger { background-color: #d1fae5; color: #065f46; border-color: #6ee7b7; }
     .cdropdown-pill.cd-status-挂起   .cdropdown-trigger { background-color: #f1f0ee; color: #78716c; border-color: #d6d3d1; }
 
+    /* ===== 只读 Pill Badge（归档页等不可交互场景） ===== */
+    .static-pill {
+      display: inline-block; border-radius: 9999px;
+      padding: 3px 10px; font-size: 12px; font-weight: 600;
+      line-height: 1.5; white-space: nowrap;
+      background-color: #f7f6f4; border: 1px solid #d4cfc7; color: #4a433c;
+    }
+    .static-pill.sp-status-设计中 { background-color: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+    .static-pill.sp-status-待评审 { background-color: #fef3c7; color: #92400e; border-color: #fcd34d; }
+    .static-pill.sp-status-开发中 { background-color: #e0e7ff; color: #3730a3; border-color: #a5b4fc; }
+    .static-pill.sp-status-待验收 { background-color: #fce7f3; color: #9d174d; border-color: #f9a8d4; }
+    .static-pill.sp-status-已完成 { background-color: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+    .static-pill.sp-status-挂起   { background-color: #f1f0ee; color: #78716c; border-color: #d6d3d1; }
+    .static-pill.sp-priority-P0 { background-color: #c46e52; color: white; border-color: #c46e52; }
+    .static-pill.sp-priority-P1 { background-color: #d98f78; color: white; border-color: #d98f78; }
+    .static-pill.sp-priority-P2 { background-color: #eab9a8; color: #52271f; border-color: #eab9a8; }
+    .static-pill.sp-priority-P3 { background-color: #c8d1bd; color: #2e3829; border-color: #c8d1bd; }
+    .static-pill.sp-priority-P4 { background-color: #d4cfc7; color: #4a433c; border-color: #d4cfc7; }
+    .static-pill.sp-priority-P5 { background-color: #e8e5e0; color: #635a50; border-color: #e8e5e0; }
+
     /* 隐藏原生select备用（仅无JS降级） */
     select.fallback-select { display: none; }
 
@@ -712,11 +732,12 @@
                 <tr class="border-b border-ink-100">
                   <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">需求ID</th>
                   <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">需求名称</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">产品线</th>
                   <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">状态</th>
                   <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">迭代</th>
                   <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">终端</th>
+                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">原型</th>
                   <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">开发</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">提出人</th>
                   <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">创建时间</th>
                   <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">预计上线</th>
                   <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">优先级</th>
