@@ -10,10 +10,11 @@ test.describe('7s-PM-Craft E2E 测试', () => {
 
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    // 等待页面初始化完成
+    // 等待页面初始化完成：首页显示且产品线卡片已渲染
     await page.waitForFunction(() => {
       const home = document.getElementById('home-page');
-      return home && !home.classList.contains('hidden');
+      const cards = document.querySelectorAll('#product-lines .product-card');
+      return home && !home.classList.contains('hidden') && cards.length > 0;
     });
   });
 

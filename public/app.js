@@ -490,7 +490,7 @@ async function refreshData() {
     currentData.drafts = draftData.drafts || [];
 
     if (!document.getElementById('home-page').classList.contains('hidden')) {
-      await renderHome();
+      renderHome();
     } else if (!document.getElementById('list-page').classList.contains('hidden')) {
       initFilterOptions();
       renderList();
@@ -508,28 +508,46 @@ async function refreshData() {
 
 // 产品线搜索功能
 let productLineSearchQuery = '';
-async function performProductLineSearch() {
+function performProductLineSearch() {
   const query = document.getElementById('product-line-search').value.trim().toLowerCase();
   productLineSearchQuery = query;
-  await renderHome();
+  renderHome();
 }
 
 // 渲染首页
-async function renderHome() {
+function renderHome() {
   const statsContainer = document.getElementById('stats-container');
   const productLinesContainer = document.getElementById('product-lines');
   const archivedCard = document.getElementById('archived-card');
 
-  // 从后端获取统计数据（包含物理产品线信息）
-  let statsData = { total: 0, archived: 0, statusCounts: {}, productLineCounts: {}, physicalProductLines: [] };
-  try {
-    const res = await fetch('/api/stats');
-    if (res.ok) {
-      statsData = await res.json();
+  if (!statsContainer || !productLinesContainer) return;
+
+  // 使用本地数据计算统计（同步渲染，不阻塞）
+  let statsData = {
+    total: currentData.requirements.filter(r => !r.isArchive).length,
+    archived: currentData.requirements.filter(r => r.isArchive).length,
+    statusCounts: {},
+    productLineCounts: {},
+    physicalProductLines: []
+  };
+
+  // 计算状态统计
+  for (const req of currentData.requirements) {
+    if (!req.isArchive && req.status) {
+      statsData.statusCounts[req.status] = (statsData.statusCounts[req.status] || 0) + 1;
     }
-  } catch (e) {
-    console.error('获取统计数据失败:', e);
   }
+
+  // 后台异步获取物理产品线信息并更新（如果有差异）
+  fetch('/api/stats')
+    .then(res => res.ok ? res.json() : null)
+    .then(remoteStats => {
+      if (remoteStats && JSON.stringify(remoteStats.physicalProductLines) !== JSON.stringify(statsData.physicalProductLines)) {
+        // 物理产品线列表有变化，重新渲染
+        renderHome();
+      }
+    })
+    .catch(() => {}); // 静默失败，不影响当前渲染
 
   // 状态配色（与 CD_STATUS_COLORS 对应）
   const statusColorPalette = [
@@ -648,7 +666,7 @@ async function renderHome() {
 }
 
 // 显示首页
-async function showHome() {
+function showHome() {
   isSearchMode = false;
   lastSearchQuery = '';
   productLineSearchQuery = '';
@@ -658,7 +676,7 @@ async function showHome() {
   previousPage = 'home';
   hideAllPages();
   document.getElementById('home-page').classList.remove('hidden');
-  await renderHome();
+  renderHome();
 }
 
 // 显示列表页
@@ -691,6 +709,7 @@ function performSearch() {
   if (clearBtn) clearBtn.classList.remove('hidden');
   renderList();
 }
+
 
 // 清除搜索
 function clearSearch() {
@@ -763,11 +782,15 @@ function renderList() {
     const q = lastSearchQuery;
     reqs = currentData.requirements.filter(r => {
       const pls = toArray(r.productLine);
-      return (r.title && r.title.toLowerCase().includes(q)) ||
-        (r.id && r.id.toLowerCase().includes(q)) ||
-        (r.developer && r.developer.toLowerCase().includes(q)) ||
-        (r.requester && r.requester.toLowerCase().includes(q)) ||
-        pls.some(pl => pl.toLowerCase().includes(q));
+      const title = r.title != null ? String(r.title).toLowerCase() : '';
+      const id = r.id != null ? String(r.id).toLowerCase() : '';
+      const developer = r.developer != null ? String(r.developer).toLowerCase() : '';
+      const requester = r.requester != null ? String(r.requester).toLowerCase() : '';
+      return title.includes(q) ||
+        id.includes(q) ||
+        developer.includes(q) ||
+        requester.includes(q) ||
+        pls.some(pl => String(pl).toLowerCase().includes(q));
     });
   } else {
     // 按主产品线筛选（mainProductLine 优先，兼容旧数据 productLine）
