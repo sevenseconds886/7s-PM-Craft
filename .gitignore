@@ -20,9 +20,11 @@ Thumbs.db
 # Editor
 .obsidian/
 
-# WorkBuddy (personal config, not project data — but skills are tracked)
-.workbuddy/*
-!.workbuddy/skills/
+# WorkBuddy (personal config, not project data)
+.workbuddy/
+
+# Skills (tracked at root level)
+# skills/  — tracked in git
 
 # Local settings (per-machine)
 .settings.json

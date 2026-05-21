@@ -2717,10 +2717,23 @@ function renderSprintKanbanBoard(reqs) {
                 </div>
                 <div class="flex items-center justify-between">
                   <span class="font-mono text-xs text-ink-400">${req.id}</span>
-                  <div class="flex items-center gap-1.5 text-xs text-ink-400">
+                  <div class="flex items-center gap-1.5 text-xs text-ink-400" data-stop-click="true">
                     ${(() => {
                       const pls = Array.isArray(req.productLine) ? req.productLine : (req.productLine ? [req.productLine] : []);
-                      return pls.map(pl => `<span class="px-1.5 py-0.5 bg-ink-50 border border-ink-100 rounded text-ink-500">${pl}</span>`).join('');
+                      const allPls = new Set([
+                        ...(settings.productLines || []),
+                        ...currentData.requirements.flatMap(r => {
+                          const p = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
+                          return p;
+                        })
+                      ]);
+                      if (pls.length > 0) allPls.add(pls[0]);
+                      const plOptions = [
+                        {value: '', label: '未分类'},
+                        ...Array.from(allPls).filter(p => p && p !== '未分类').sort().map(p => ({value: p, label: p}))
+                      ];
+                      const plValue = pls.length > 0 ? pls[0] : '';
+                      return cdRender({ id: `cd-kanban-pl-${req.id}`, value: plValue, options: plOptions, style: 'pill', colorType: '', onChange: `updateProductLine('${req.id}')`, stopClick: true });
                     })()}
                   </div>
                 </div>
@@ -2755,7 +2768,25 @@ function renderSprintReqTable(reqs) {
         <td class="px-5 py-4">
           ${cdRender({ id: `cd-sp-status-${req.id}`, value: req.status, options: (settings.statusList || []).map(s => ({value: s, label: s})), style: 'pill', colorType: 'status', onChange: `updateStatus('${req.id}')`, stopClick: true })}
         </td>
-        <td class="px-5 py-4 text-sm text-ink-500">${pls.join(', ')}</td>
+        <td class="px-5 py-4" data-stop-click="true">
+          ${(() => {
+            const pls = Array.isArray(req.productLine) ? req.productLine : (req.productLine ? [req.productLine] : []);
+            const allPls = new Set([
+              ...(settings.productLines || []),
+              ...currentData.requirements.flatMap(r => {
+                const p = Array.isArray(r.productLine) ? r.productLine : (r.productLine ? [r.productLine] : []);
+                return p;
+              })
+            ]);
+            if (pls.length > 0) allPls.add(pls[0]);
+            const plOptions = [
+              {value: '', label: '未分类'},
+              ...Array.from(allPls).filter(p => p && p !== '未分类').sort().map(p => ({value: p, label: p}))
+            ];
+            const plValue = pls.length > 0 ? pls[0] : '';
+            return cdRender({ id: `cd-sp-pl-${req.id}`, value: plValue, options: plOptions, style: 'pill', colorType: '', onChange: `updateProductLine('${req.id}')`, stopClick: true });
+          })()}
+        </td>
         <td class="px-5 py-4">
           ${cdRender({ id: `cd-sp-priority-${req.id}`, value: req.priority, options: (settings.priorityList || []).map(p => ({value: p, label: p})), style: 'pill', colorType: 'priority', onChange: `updatePriority('${req.id}')`, stopClick: true })}
         </td>
