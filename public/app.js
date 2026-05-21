@@ -490,7 +490,7 @@ async function refreshData() {
     currentData.drafts = draftData.drafts || [];
 
     if (!document.getElementById('home-page').classList.contains('hidden')) {
-      renderHome();
+      await renderHome();
     } else if (!document.getElementById('list-page').classList.contains('hidden')) {
       initFilterOptions();
       renderList();
@@ -508,29 +508,27 @@ async function refreshData() {
 
 // 产品线搜索功能
 let productLineSearchQuery = '';
-function performProductLineSearch() {
+async function performProductLineSearch() {
   const query = document.getElementById('product-line-search').value.trim().toLowerCase();
   productLineSearchQuery = query;
-  renderHome();
+  await renderHome();
 }
 
 // 渲染首页
-function renderHome() {
+async function renderHome() {
   const statsContainer = document.getElementById('stats-container');
   const productLinesContainer = document.getElementById('product-lines');
   const archivedCard = document.getElementById('archived-card');
 
-  // ===== 性能优化：单次遍历计算所有统计数据 =====
-  let totalCount = 0;
-  let archivedCount = 0;
-  const statusCounts = new Map();
-  for (const req of currentData.requirements) {
-    if (req.isArchive) {
-      archivedCount++;
-    } else {
-      totalCount++;
-      statusCounts.set(req.status, (statusCounts.get(req.status) || 0) + 1);
+  // 从后端获取统计数据（包含物理产品线信息）
+  let statsData = { total: 0, archived: 0, statusCounts: {}, productLineCounts: {}, physicalProductLines: [] };
+  try {
+    const res = await fetch('/api/stats');
+    if (res.ok) {
+      statsData = await res.json();
     }
+  } catch (e) {
+    console.error('获取统计数据失败:', e);
   }
 
   // 状态配色（与 CD_STATUS_COLORS 对应）
@@ -543,12 +541,12 @@ function renderHome() {
     'bg-stone-100 text-stone-500',
   ];
 
-  const stats = { total: totalCount };
+  const stats = { total: statsData.total || 0 };
   const statColors = { total: 'bg-ink-800 text-white' };
   const statLabels = { total: '总需求' };
 
   (settings.statusList || []).forEach((status, idx) => {
-    stats[status] = statusCounts.get(status) || 0;
+    stats[status] = (statsData.statusCounts && statsData.statusCounts[status]) || 0;
     statColors[status] = statusColorPalette[idx % statusColorPalette.length];
     statLabels[status] = status;
   });
@@ -566,7 +564,7 @@ function renderHome() {
 
   // 更新已归档卡片数量
   if (archivedCard) {
-    archivedCard.querySelector('.archived-count').textContent = archivedCount;
+    archivedCard.querySelector('.archived-count').textContent = statsData.archived || 0;
   }
 
   // 更新迭代入口计数
@@ -574,7 +572,7 @@ function renderHome() {
   if (sprintEntry) {
     sprintEntry.querySelector('.sprint-count').textContent = currentData.sprints.length;
   }
-  
+
   // 更新需求池入口计数
   const draftsEntry = document.getElementById('drafts-entry');
   if (draftsEntry) {
@@ -582,39 +580,37 @@ function renderHome() {
     draftsEntry.querySelector('.drafts-count').textContent = draftsCount;
   }
 
-  // ===== 性能优化：一次遍历预计算所有产品线的统计数据 =====
-  // 避免 O(n×m) 的重复 filter，改为 O(n) 单次遍历 + O(m) 渲染
-  const settingsProductLines = settings.productLines || [];
-  const plStats = new Map(); // pl -> { count, statusCounts: Map }
+  // ===== 产品线卡片：只显示有物理文件夹的产品线 =====
+  const physicalPLs = statsData.physicalProductLines || [];
+  const plCounts = statsData.productLineCounts || {};
 
+  // 构建产品线统计（基于 mainProductLine）
+  const plStats = new Map();
   for (const req of currentData.requirements) {
     if (req.isArchive) continue;
-    const pls = toArray(req.productLine);
-    for (const pl of pls) {
-      if (!plStats.has(pl)) {
-        plStats.set(pl, { count: 0, statusCounts: new Map() });
-      }
-      const stat = plStats.get(pl);
-      stat.count++;
-      stat.statusCounts.set(req.status, (stat.statusCounts.get(req.status) || 0) + 1);
+    const mainPL = req.mainProductLine || '未分类';
+    if (!plStats.has(mainPL)) {
+      plStats.set(mainPL, { count: 0, statusCounts: new Map() });
     }
+    const stat = plStats.get(mainPL);
+    stat.count++;
+    stat.statusCounts.set(req.status, (stat.statusCounts.get(req.status) || 0) + 1);
   }
 
-  // 合并 settings 中定义但暂无需求的产品线
-  for (const pl of settingsProductLines) {
-    if (!plStats.has(pl)) {
-      plStats.set(pl, { count: 0, statusCounts: new Map() });
-    }
-  }
+  // 只保留有物理文件夹的产品线 + 未分类兜底
+  let productLines = physicalPLs.filter(pl => pl !== '未分类');
 
-  // 产品线搜索过滤
-  let productLines = [...plStats.keys()];
+  // 如果存在未分类需求，添加未分类卡片
+  const hasUncategorized = plStats.has('未分类') || !physicalPLs.length;
+
+  // 搜索过滤
   if (productLineSearchQuery) {
     productLines = productLines.filter(pl => pl.toLowerCase().includes(productLineSearchQuery));
   }
 
-  productLinesContainer.innerHTML = productLines.map(pl => {
-    const stat = plStats.get(pl);
+  // 渲染产品线卡片
+  let cardsHtml = productLines.map(pl => {
+    const stat = plStats.get(pl) || { count: 0, statusCounts: new Map() };
     const statusBreakdown = (settings.statusList || []).map(s => {
       const count = stat.statusCounts.get(s) || 0;
       return count > 0 ? `<span class="text-xs text-ink-500">${count} ${s}</span>` : '';
@@ -632,10 +628,27 @@ function renderHome() {
       </div>
     `;
   }).join('');
+
+  // 未分类卡片（灰色、置底）
+  if (hasUncategorized && (!productLineSearchQuery || '未分类'.toLowerCase().includes(productLineSearchQuery))) {
+    const uncategorizedStat = plStats.get('未分类') || { count: 0, statusCounts: new Map() };
+    cardsHtml += `
+      <div onclick="showList('未分类')" class="product-card bg-stone-50 rounded-2xl border border-stone-200 p-6 cursor-pointer hover:border-stone-300 transition-colors">
+        <div class="flex justify-between items-start mb-4">
+          <h3 class="font-display text-lg text-stone-500">未分类</h3>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="text-stone-300"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="font-display text-4xl text-stone-500 mb-1">${uncategorizedStat.count}</div>
+        <div class="text-sm text-stone-400 mb-3">个需求</div>
+      </div>
+    `;
+  }
+
+  productLinesContainer.innerHTML = cardsHtml;
 }
 
 // 显示首页
-function showHome() {
+async function showHome() {
   isSearchMode = false;
   lastSearchQuery = '';
   productLineSearchQuery = '';
@@ -645,7 +658,7 @@ function showHome() {
   previousPage = 'home';
   hideAllPages();
   document.getElementById('home-page').classList.remove('hidden');
-  renderHome();
+  await renderHome();
 }
 
 // 显示列表页
@@ -757,9 +770,10 @@ function renderList() {
         pls.some(pl => pl.toLowerCase().includes(q));
     });
   } else {
+    // 按主产品线筛选（mainProductLine 优先，兼容旧数据 productLine）
     reqs = currentData.requirements.filter(r => {
-      const pls = toArray(r.productLine);
-      return pls.includes(currentProductLine);
+      const mainPL = r.mainProductLine || (toArray(r.productLine)[0]) || '未分类';
+      return mainPL === currentProductLine;
     });
   }
 
@@ -910,8 +924,10 @@ function renderReqTable(reqs) {
     if (hasMobile) protoBadges.push('<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600 border border-indigo-200">Mobile</span>');
     const protoHtml = protoBadges.length > 0 ? `<div class="flex gap-1">${protoBadges.join('')}</div>` : '<span class="text-xs text-ink-400">-</span>';
 
-    // 产品线标签（可编辑）
-    const pls = toArray(req.productLine);
+    // 产品线：主产品线（可编辑下拉）+ 关联产品线（只读标签）
+    const mainPL = req.mainProductLine || (toArray(req.productLine)[0]) || '未分类';
+    const relatedPLs = (req.relatedProductLines || []).filter(pl => pl && pl !== mainPL);
+
     // 合并所有来源的产品线：settings + 所有需求元数据 + 当前需求自身
     const allPls = new Set([
       ...(settings.productLines || []),
@@ -920,12 +936,18 @@ function renderReqTable(reqs) {
         return p;
       })
     ]);
-    if (pls.length > 0) allPls.add(pls[0]);
+    allPls.add(mainPL);
     const plOptions = [
       {value: '', label: '未分类'},
       ...Array.from(allPls).filter(p => p && p !== '未分类').sort().map(p => ({value: p, label: p}))
     ];
-    const plValue = pls.length > 0 ? pls[0] : '';
+
+    // 关联产品线标签HTML
+    const relatedTagsHtml = relatedPLs.length > 0
+      ? `<div class="flex flex-wrap gap-1 mt-1">${relatedPLs.map(pl =>
+          `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-stone-100 text-stone-500 border border-stone-200">${escapeHtml(pl)}</span>`
+        ).join('')}</div>`
+      : '';
 
     return `
     <tr class="border-b border-ink-50 hover:bg-ink-50 transition-colors">
@@ -936,7 +958,8 @@ function renderReqTable(reqs) {
         <div class="text-sm text-ink-800 cursor-pointer hover:text-ink-600 transition-colors" onclick="showDetail('${escapeHtml(req.id)}')">${escapeHtml(req.title)}</div>
       </td>
       <td class="px-5 py-4" data-stop-click="true">
-        ${cdRender({ id: `cd-pl-${escapeHtml(req.id)}`, value: plValue, options: plOptions, style: 'pill', colorType: '', onChange: `updateProductLine('${escapeHtml(req.id)}')`, stopClick: true })}
+        ${cdRender({ id: `cd-pl-${escapeHtml(req.id)}`, value: mainPL, options: plOptions, style: 'pill', colorType: '', onChange: `updateProductLine('${escapeHtml(req.id)}')`, stopClick: true })}
+        ${relatedTagsHtml}
       </td>
       <td class="px-5 py-4">
         ${cdRender({ id: `cd-status-${escapeHtml(req.id)}`, value: req.status, options: (settings.statusList || []).map(s => ({value: s, label: s})), style: 'pill', colorType: 'status', onChange: `updateStatus('${escapeHtml(req.id)}')`, stopClick: true })}
@@ -1037,6 +1060,16 @@ function renderDetail() {
   // 头部
   const stColors = CD_STATUS_COLORS[req.status] || {bg:'#e8e5e0',text:'#635a50',border:'#d4cfc7'};
   const prColors = CD_PRIORITY_COLORS[req.priority] || {bg:'#d4cfc7',text:'#4a433c'};
+
+  // 产品线标签：主产品线（突出）+ 关联产品线（灰色）
+  const mainPL = req.mainProductLine || (toArray(req.productLine)[0]) || '未分类';
+  const relatedPLs = (req.relatedProductLines || []).filter(pl => pl && pl !== mainPL);
+  const relatedTagsHtml = relatedPLs.length > 0
+    ? relatedPLs.map(pl =>
+        `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-stone-100 text-stone-500 border border-stone-200">${escapeHtml(pl)}</span>`
+      ).join('')
+    : '';
+
   document.getElementById('detail-header').innerHTML = `
     <div class="flex items-center gap-3 flex-wrap">
       <span class="font-mono text-xs text-ink-500">${escapeHtml(req.id)}</span>
@@ -1052,6 +1085,10 @@ function renderDetail() {
           ${req.priority}
         </span>
       </div>
+    </div>
+    <div class="flex items-center gap-2 mt-2">
+      <span class="text-xs font-medium text-ink-700 bg-ink-100 px-2 py-0.5 rounded">${escapeHtml(mainPL)}</span>
+      ${relatedTagsHtml}
     </div>
   `;
 
@@ -1160,8 +1197,8 @@ function loadPrototype(req) {
     docResizer.style.display = 'none';
   }
 
-  const primaryPL = toArray(req.productLine)[0];
-  const protoFile = `/products/${encodeURIComponent(primaryPL || '未分类')}/${encodeURIComponent(req.folderName)}/prototype-${platform}.html`;
+  const primaryPL = req.mainProductLine || (toArray(req.productLine)[0]) || '未分类';
+  const protoFile = `/products/${encodeURIComponent(primaryPL)}/${encodeURIComponent(req.folderName)}/prototype-${platform}.html`;
 
   // 有原型时，恢复 iframe 结构
   container.innerHTML = `<iframe id="prototype-frame" class="w-full h-full border-0" title="需求原型"></iframe>`;
@@ -1610,17 +1647,16 @@ async function updateSprint(id, sprint) {
   }
 }
 
-// 更新产品线（含物理文件夹迁移）
+// 更新产品线（含物理文件夹迁移 + 二次确认）
 async function updateProductLine(id) {
   const newPL = cdGetValue(`cd-pl-${id}`);
   const req = currentData.requirements.find(r => r.id === id);
   if (!req) return;
 
-  const oldPLs = toArray(req.productLine);
-  const oldPrimary = oldPLs[0] || '';
+  const oldMainPL = req.mainProductLine || (toArray(req.productLine)[0]) || '';
   const newPrimary = newPL || '未分类';
 
-  if (oldPrimary === newPrimary) return;
+  if (oldMainPL === newPrimary) return;
 
   try {
     const res = await fetch(`/api/requirements/${id}/product-line`, {
@@ -1628,13 +1664,37 @@ async function updateProductLine(id) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ product_line: [newPrimary] })
     });
+
     if (res.ok) {
       await refreshData();
       showToast('产品线已更新', 'success');
     } else {
       const err = await res.json();
-      showToast(err.error || '更新失败', 'error');
-      await refreshData();
+      // 4003: 需要二次确认
+      if (err.code === 4003) {
+        if (confirm(`确定将需求从「${oldMainPL || '未分类'}」移动到「${newPrimary}」？\n\n这将改变需求的物理存储位置。`)) {
+          // 二次确认后重新请求
+          const confirmRes = await fetch(`/api/requirements/${id}/product-line`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ product_line: [newPrimary], confirmed: true })
+          });
+          if (confirmRes.ok) {
+            await refreshData();
+            showToast('产品线已更新', 'success');
+          } else {
+            const confirmErr = await confirmRes.json();
+            showToast(confirmErr.error || '更新失败', 'error');
+            await refreshData();
+          }
+        } else {
+          // 用户取消，恢复下拉选择
+          await refreshData();
+        }
+      } else {
+        showToast(err.error || '更新失败', 'error');
+        await refreshData();
+      }
     }
   } catch (e) {
     console.error('更新产品线失败:', e);
@@ -2411,16 +2471,36 @@ function showCreateReqModal() {
   const reqProductLines = currentData.requirements.flatMap(r =>
     toArray(r.productLine)
   );
-  const productLines = [...new Set([...settingsProductLines, ...reqProductLines])];
+  const productLines = [...new Set([...settingsProductLines, ...reqProductLines])].filter(pl => pl && pl !== '未分类');
 
-  // 渲染产品线复选框组
+  // 主产品线下拉选择（单选，决定物理位置）
+  const mainPLContainer = document.getElementById('new-req-main-product-line');
+  if (mainPLContainer) {
+    const mainPLOptions = [
+      {value: '', label: '未分类'},
+      ...productLines.sort().map(pl => ({value: pl, label: pl}))
+    ];
+    mainPLContainer.innerHTML = cdRender({
+      id: 'cd-new-req-main-pl',
+      value: currentProductLine || '',
+      options: mainPLOptions,
+      style: 'form',
+      colorType: '',
+      onChange: 'updateRelatedProductLineOptions()'
+    });
+  }
+
+  // 关联产品线复选框组（多选，排除主产品线）
   const listContainer = document.getElementById('new-req-product-line-list');
   listContainer.innerHTML = productLines.map(pl => `
-    <label class="flex items-center gap-2 cursor-pointer">
-      <input type="checkbox" name="new-req-product-line" value="${escapeHtml(pl)}" ${pl === currentProductLine ? 'checked' : ''} class="w-4 h-4 rounded border-ink-300 text-ink-800 focus:ring-ink-500">
+    <label class="flex items-center gap-2 cursor-pointer related-pl-option" data-pl="${escapeHtml(pl)}">
+      <input type="checkbox" name="new-req-product-line" value="${escapeHtml(pl)}" class="w-4 h-4 rounded border-ink-300 text-ink-800 focus:ring-ink-500">
       <span class="text-sm text-ink-700">${escapeHtml(pl)}</span>
     </label>
   `).join('');
+
+  // 初始化时根据当前主产品线禁用关联选项
+  updateRelatedProductLineOptions();
 
   // 动态填充优先级下拉列表
   const priorityContainer = document.getElementById('new-req-priority-dd');
@@ -2447,6 +2527,24 @@ function showCreateReqModal() {
 
   // 聚焦标题
   setTimeout(() => document.getElementById('new-req-title').focus(), 100);
+}
+
+// 更新关联产品线选项：禁用已选的主产品线
+function updateRelatedProductLineOptions() {
+  const mainPL = cdGetValue('cd-new-req-main-pl') || '';
+  const relatedOptions = document.querySelectorAll('.related-pl-option');
+  relatedOptions.forEach(label => {
+    const pl = label.getAttribute('data-pl');
+    const checkbox = label.querySelector('input[type="checkbox"]');
+    if (pl === mainPL) {
+      label.classList.add('opacity-40', 'pointer-events-none');
+      checkbox.checked = false;
+      checkbox.disabled = true;
+    } else {
+      label.classList.remove('opacity-40', 'pointer-events-none');
+      checkbox.disabled = false;
+    }
+  });
 }
 
 // 添加新产品线到复选框组
@@ -2506,9 +2604,15 @@ async function createRequirement() {
   const developer = document.getElementById('new-req-developer').value.trim();
   const requester = document.getElementById('new-req-requester').value.trim();
 
-  // 收集选中的产品线
+  // 主产品线（单选，决定物理位置）
+  const mainProductLine = cdGetValue('cd-new-req-main-pl') || '未分类';
+
+  // 关联产品线（多选，排除主产品线）
   const productLineCheckboxes = document.querySelectorAll('input[name="new-req-product-line"]:checked');
-  const productLines = Array.from(productLineCheckboxes).map(cb => cb.value);
+  const relatedProductLines = Array.from(productLineCheckboxes).map(cb => cb.value);
+
+  // 合并为 product_line 数组（main 在前，兼容旧格式）
+  const productLines = [mainProductLine, ...relatedProductLines.filter(pl => pl !== mainProductLine)];
 
   const platforms = [];
   if (document.getElementById('new-req-platform-web').checked) platforms.push('web');
@@ -2518,8 +2622,8 @@ async function createRequirement() {
     alert('请输入需求标题');
     return;
   }
-  if (productLines.length === 0) {
-    alert('请至少选择一个产品线');
+  if (!mainProductLine) {
+    alert('请选择主产品线');
     return;
   }
   if (platforms.length === 0) {
