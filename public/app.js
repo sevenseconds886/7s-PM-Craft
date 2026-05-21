@@ -520,10 +520,18 @@ function renderHome() {
   const productLinesContainer = document.getElementById('product-lines');
   const archivedCard = document.getElementById('archived-card');
 
-  // 动态统计：总需求 + 各状态数量（仅未归档需求，跟随设置中的状态定义）
-  const stats = { total: currentData.requirements.filter(r => !r.isArchive).length };
-  const statColors = { total: 'bg-ink-800 text-white' };
-  const statLabels = { total: '总需求' };
+  // ===== 性能优化：单次遍历计算所有统计数据 =====
+  let totalCount = 0;
+  let archivedCount = 0;
+  const statusCounts = new Map();
+  for (const req of currentData.requirements) {
+    if (req.isArchive) {
+      archivedCount++;
+    } else {
+      totalCount++;
+      statusCounts.set(req.status, (statusCounts.get(req.status) || 0) + 1);
+    }
+  }
 
   // 状态配色（与 CD_STATUS_COLORS 对应）
   const statusColorPalette = [
@@ -535,8 +543,12 @@ function renderHome() {
     'bg-stone-100 text-stone-500',
   ];
 
+  const stats = { total: totalCount };
+  const statColors = { total: 'bg-ink-800 text-white' };
+  const statLabels = { total: '总需求' };
+
   (settings.statusList || []).forEach((status, idx) => {
-    stats[status] = currentData.requirements.filter(r => r.status === status && !r.isArchive).length;
+    stats[status] = statusCounts.get(status) || 0;
     statColors[status] = statusColorPalette[idx % statusColorPalette.length];
     statLabels[status] = status;
   });
@@ -553,7 +565,6 @@ function renderHome() {
   `).join('');
 
   // 更新已归档卡片数量
-  const archivedCount = currentData.requirements.filter(r => r.isArchive).length;
   if (archivedCard) {
     archivedCard.querySelector('.archived-count').textContent = archivedCount;
   }
@@ -571,25 +582,41 @@ function renderHome() {
     draftsEntry.querySelector('.drafts-count').textContent = draftsCount;
   }
 
-  // 收集所有唯一的产品线（仅未归档需求，合并 settings.productLines 和需求中的产品线）
+  // ===== 性能优化：一次遍历预计算所有产品线的统计数据 =====
+  // 避免 O(n×m) 的重复 filter，改为 O(n) 单次遍历 + O(m) 渲染
   const settingsProductLines = settings.productLines || [];
-  const reqProductLines = currentData.requirements
-    .filter(r => !r.isArchive)
-    .flatMap(r => toArray(r.productLine));
-  const productLines = [...new Set([...settingsProductLines, ...reqProductLines])];
+  const plStats = new Map(); // pl -> { count, statusCounts: Map }
+
+  for (const req of currentData.requirements) {
+    if (req.isArchive) continue;
+    const pls = toArray(req.productLine);
+    for (const pl of pls) {
+      if (!plStats.has(pl)) {
+        plStats.set(pl, { count: 0, statusCounts: new Map() });
+      }
+      const stat = plStats.get(pl);
+      stat.count++;
+      stat.statusCounts.set(req.status, (stat.statusCounts.get(req.status) || 0) + 1);
+    }
+  }
+
+  // 合并 settings 中定义但暂无需求的产品线
+  for (const pl of settingsProductLines) {
+    if (!plStats.has(pl)) {
+      plStats.set(pl, { count: 0, statusCounts: new Map() });
+    }
+  }
 
   // 产品线搜索过滤
-  const filteredProductLines = productLineSearchQuery
-    ? productLines.filter(pl => pl.toLowerCase().includes(productLineSearchQuery))
-    : productLines;
+  let productLines = [...plStats.keys()];
+  if (productLineSearchQuery) {
+    productLines = productLines.filter(pl => pl.toLowerCase().includes(productLineSearchQuery));
+  }
 
-  productLinesContainer.innerHTML = filteredProductLines.map(pl => {
-    const plReqs = currentData.requirements.filter(r => {
-      const pls = toArray(r.productLine);
-      return pls.includes(pl) && !r.isArchive;
-    });
+  productLinesContainer.innerHTML = productLines.map(pl => {
+    const stat = plStats.get(pl);
     const statusBreakdown = (settings.statusList || []).map(s => {
-      const count = plReqs.filter(r => r.status === s).length;
+      const count = stat.statusCounts.get(s) || 0;
       return count > 0 ? `<span class="text-xs text-ink-500">${count} ${s}</span>` : '';
     }).filter(Boolean).join('<span class="text-ink-200 mx-2">·</span>');
 
@@ -599,7 +626,7 @@ function renderHome() {
           <h3 class="font-display text-lg text-ink-800">${escapeHtml(pl)}</h3>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="text-ink-200"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
-        <div class="font-display text-4xl text-ink-800 mb-1">${plReqs.length}</div>
+        <div class="font-display text-4xl text-ink-800 mb-1">${stat.count}</div>
         <div class="text-sm text-ink-500 mb-3">个需求</div>
         <div class="flex items-center flex-wrap gap-y-1">${statusBreakdown}</div>
       </div>
