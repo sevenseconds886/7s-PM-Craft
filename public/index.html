@@ -713,10 +713,10 @@
           <div class="flex items-center justify-between mb-4">
             <div class="flex gap-2 overflow-x-auto pb-2" id="status-tabs"></div>
             <div class="flex gap-1 bg-ink-100 p-1 rounded-lg ml-4 flex-shrink-0">
-              <button onclick="switchStatusViewMode('card')" id="btn-view-card" class="p-1.5 rounded-md transition-all" title="卡片视图">
+              <button onclick="switchStatusViewMode('card')" id="btn-view-card" class="p-1.5 rounded-md transition-all" title="卡片视图" aria-label="卡片视图">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/></svg>
               </button>
-              <button onclick="switchStatusViewMode('list')" id="btn-view-list" class="p-1.5 rounded-md transition-all text-ink-500 hover:text-ink-800" title="列表视图">
+              <button onclick="switchStatusViewMode('list')" id="btn-view-list" class="p-1.5 rounded-md transition-all text-ink-500 hover:text-ink-800" title="列表视图" aria-label="列表视图">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
               </button>
             </div>
@@ -730,18 +730,18 @@
             <table class="w-full">
               <thead>
                 <tr class="border-b border-ink-100">
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">需求ID</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">需求名称</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">产品线</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">状态</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">迭代</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">终端</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">原型</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">开发</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">创建时间</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">预计上线</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">优先级</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">操作</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">需求ID</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">需求名称</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">产品线</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">状态</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">迭代</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">终端</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">原型</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">开发</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">创建时间</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">预计上线</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">优先级</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">操作</th>
                 </tr>
               </thead>
               <tbody id="requirements-list"></tbody>
@@ -783,7 +783,7 @@
         <!-- 中间原型区域 -->
         <div class="flex-1 bg-ink-50 relative flex items-center justify-center" id="prototype-area">
           <div class="absolute top-4 left-1/2 transform -translate-x-1/2 flex gap-2 bg-white rounded-xl p-1.5 shadow-sm border border-ink-100" id="platform-tabs"></div>
-          <button onclick="togglePrototypeFullscreen()" id="proto-fullscreen-btn" class="absolute top-4 right-4 w-9 h-9 bg-white rounded-xl shadow-sm border border-ink-100 flex items-center justify-center text-ink-500 hover:text-ink-800 hover:bg-ink-50 transition-all z-10" title="全屏">
+          <button onclick="togglePrototypeFullscreen()" id="proto-fullscreen-btn" class="absolute top-4 right-4 w-9 h-9 bg-white rounded-xl shadow-sm border border-ink-100 flex items-center justify-center text-ink-500 hover:text-ink-800 hover:bg-ink-50 transition-all z-10" title="全屏" aria-label="全屏">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
           <div class="p-3 w-full h-full flex items-center justify-center">
@@ -918,7 +918,7 @@
     <div id="draft-detail-page" class="hidden"></div>
 
     <!-- 草稿弹窗（新建/编辑） -->
-    <div id="draft-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden z-50 flex items-center justify-center">
+    <div id="draft-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden z-50 flex items-center justify-center" role="dialog" aria-modal="true">
       <div class="bg-white rounded-2xl shadow-2xl w-[560px] max-h-[85vh] flex flex-col overflow-hidden animate-fade-in">
         <div class="px-6 py-5 border-b border-ink-100 flex justify-between items-center">
           <h3 id="draft-modal-title" class="font-display text-xl font-bold text-ink-900">新建草稿</h3>
@@ -973,7 +973,7 @@
     </div>
 
     <!-- 发布确认弹窗 -->
-    <div id="publish-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden z-50 flex items-center justify-center">
+    <div id="publish-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden z-50 flex items-center justify-center" role="dialog" aria-modal="true">
       <div class="bg-white rounded-2xl shadow-2xl w-[480px] max-h-[85vh] flex flex-col overflow-hidden animate-fade-in">
         <div class="px-6 py-5 border-b border-ink-100 flex justify-between items-center">
           <h3 class="font-display text-xl font-bold text-ink-900">发布草稿</h3>
@@ -1043,12 +1043,12 @@
             <table class="w-full">
               <thead>
                 <tr class="border-b border-ink-100">
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">需求ID</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">需求名称</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">状态</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">产品线</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">优先级</th>
-                  <th class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">操作</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">需求ID</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">需求名称</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">状态</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">产品线</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">优先级</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">操作</th>
                 </tr>
               </thead>
               <tbody id="sprint-requirements-list"></tbody>
@@ -1059,7 +1059,7 @@
     </div>
 
     <!-- 新建需求弹窗 -->
-    <div id="create-req-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden z-50 flex items-center justify-center">
+    <div id="create-req-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden z-50 flex items-center justify-center" role="dialog" aria-modal="true">
       <div class="bg-white rounded-2xl shadow-2xl w-[480px] max-h-[85vh] flex flex-col overflow-hidden animate-fade-in">
         <div class="px-6 py-5 border-b border-ink-100 flex justify-between items-center">
           <h3 class="font-display text-xl font-bold text-ink-900">新建需求</h3>
@@ -1131,7 +1131,7 @@
     </div>
 
     <!-- 新建迭代弹窗 -->
-    <div id="create-sprint-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden z-50 flex items-center justify-center">
+    <div id="create-sprint-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden z-50 flex items-center justify-center" role="dialog" aria-modal="true">
       <div class="bg-white rounded-2xl shadow-2xl w-[400px] flex flex-col overflow-hidden animate-fade-in">
         <div class="px-6 py-5 border-b border-ink-100 flex justify-between items-center">
           <h3 class="font-display text-xl font-bold text-ink-900">新建迭代</h3>
@@ -1151,7 +1151,7 @@
     </div>
 
     <!-- 设置弹窗 -->
-    <div id="settings-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden z-50 flex items-center justify-center">
+    <div id="settings-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden z-50 flex items-center justify-center" role="dialog" aria-modal="true">
       <div class="bg-white rounded-2xl shadow-2xl w-[640px] max-h-[80vh] flex flex-col overflow-hidden animate-fade-in">
         <div class="px-6 py-5 border-b border-ink-100 flex justify-between items-center">
           <h3 class="font-display text-xl font-bold text-ink-900">设置</h3>
@@ -1203,7 +1203,7 @@
     </div>
 
     <!-- 版本历史弹窗 -->
-    <div id="version-history-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden z-50 flex items-center justify-center">
+    <div id="version-history-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden z-50 flex items-center justify-center" role="dialog" aria-modal="true">
       <div class="bg-white rounded-2xl shadow-2xl w-[700px] max-h-[80vh] flex flex-col overflow-hidden animate-fade-in">
         <div class="px-6 py-5 border-b border-ink-100 flex justify-between items-center">
           <h3 class="font-display text-xl font-bold text-ink-900">版本历史</h3>

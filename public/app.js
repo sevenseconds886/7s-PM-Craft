@@ -527,9 +527,9 @@ function renderHome() {
     }).filter(Boolean).join('<span class="text-ink-200 mx-2">·</span>');
 
     return `
-      <div onclick="showList('${pl}')" class="product-card bg-white rounded-2xl border border-ink-100 p-6 cursor-pointer hover:border-ink-200 transition-colors">
+      <div onclick="showList('${escapeHtml(pl)}')" class="product-card bg-white rounded-2xl border border-ink-100 p-6 cursor-pointer hover:border-ink-200 transition-colors">
         <div class="flex justify-between items-start mb-4">
-          <h3 class="font-display text-lg text-ink-800">${pl}</h3>
+          <h3 class="font-display text-lg text-ink-800">${escapeHtml(pl)}</h3>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" class="text-ink-200"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="font-display text-4xl text-ink-800 mb-1">${plReqs.length}</div>
@@ -778,12 +778,12 @@ function renderKanban(reqs) {
              ondrop="handleKanbanDrop(event, '${status}')">
           ${statusReqs.map(req => `
             <div draggable="true"
-                 ondragstart="handleKanbanDragStart(event, '${req.id}')"
+                 ondragstart="handleKanbanDragStart(event, '${escapeHtml(req.id)}')"
                  class="kanban-card rounded-xl shadow-sm border border-ink-100 bg-white cursor-grab relative group overflow-hidden"
-                 onclick="showDetail('${req.id}')">
+                 onclick="showDetail('${escapeHtml(req.id)}')">
               <div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:${config.accent};border-radius:12px 0 0 12px;"></div>
               <div class="p-3.5 pl-5">
-                <button onclick="event.stopPropagation(); archiveReqFromList('${req.id}')"
+                <button onclick="event.stopPropagation(); archiveReqFromList('${escapeHtml(req.id)}')"
                         onmousedown="event.stopPropagation()"
                         class="absolute top-2.5 right-2.5 w-6 h-6 rounded-full bg-ink-50 text-ink-400 hover:bg-red-50 hover:text-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10"
                         title="归档" draggable="false">
@@ -791,10 +791,10 @@ function renderKanban(reqs) {
                 </button>
                 <div class="flex items-center gap-2 mb-2 pr-6">
                   <span style="width:6px;height:6px;border-radius:50%;background:${priorityDotColors[req.priority] || '#d4cfc7'};flex-shrink:0;" title="${req.priority}"></span>
-                  <div class="text-sm text-ink-800 flex-1 font-medium" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${req.title}</div>
+                  <div class="text-sm text-ink-800 flex-1 font-medium" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${escapeHtml(req.title)}</div>
                 </div>
                 <div class="flex items-center justify-between">
-                  <span class="font-mono text-xs text-ink-400">${req.id}</span>
+                  <span class="font-mono text-xs text-ink-400">${escapeHtml(req.id)}</span>
                   <div class="flex items-center gap-1.5 text-xs text-ink-400">
                     ${req.sprint ? `<span class="px-1.5 py-0.5 bg-ink-50 border border-ink-100 rounded text-ink-500">${req.sprint}</span>` : ''}
                     <span>${(req.platform || ['web']).join(', ')}</span>
@@ -852,26 +852,26 @@ function renderReqTable(reqs) {
         <div class="text-sm text-ink-800 cursor-pointer hover:text-ink-600 transition-colors" onclick="showDetail('${escapeHtml(req.id)}')">${escapeHtml(req.title)}</div>
       </td>
       <td class="px-5 py-4" data-stop-click="true">
-        ${cdRender({ id: `cd-pl-${req.id}`, value: plValue, options: plOptions, style: 'pill', colorType: '', onChange: `updateProductLine('${escapeHtml(req.id)}')`, stopClick: true })}
+        ${cdRender({ id: `cd-pl-${escapeHtml(req.id)}`, value: plValue, options: plOptions, style: 'pill', colorType: '', onChange: `updateProductLine('${escapeHtml(req.id)}')`, stopClick: true })}
       </td>
       <td class="px-5 py-4">
-        ${cdRender({ id: `cd-status-${req.id}`, value: req.status, options: (settings.statusList || []).map(s => ({value: s, label: s})), style: 'pill', colorType: 'status', onChange: `updateStatus('${req.id}')`, stopClick: true })}
+        ${cdRender({ id: `cd-status-${escapeHtml(req.id)}`, value: req.status, options: (settings.statusList || []).map(s => ({value: s, label: s})), style: 'pill', colorType: 'status', onChange: `updateStatus('${escapeHtml(req.id)}')`, stopClick: true })}
       </td>
       <td class="px-5 py-4">
-        ${cdRender({ id: `cd-sprint-${req.id}`, value: req.sprint || '', options: [{value: '', label: '未分配'}, ...currentData.sprints.filter(s => s.status === 'active').map(s => ({value: s.name, label: s.name}))], style: 'pill', colorType: '', onChange: `updateSprint('${req.id}')`, stopClick: true })}
+        ${cdRender({ id: `cd-sprint-${escapeHtml(req.id)}`, value: req.sprint || '', options: [{value: '', label: '未分配'}, ...currentData.sprints.filter(s => s.status === 'active').map(s => ({value: s.name, label: s.name}))], style: 'pill', colorType: '', onChange: `updateSprint('${escapeHtml(req.id)}')`, stopClick: true })}
       </td>
       <td class="px-5 py-4 text-sm text-ink-500">${(req.platform || ['web']).join(', ')}</td>
       <td class="px-5 py-4">${protoHtml}</td>
       <td class="px-5 py-4 text-sm text-ink-500">${req.developer || '-'}</td>
       <td class="px-5 py-4 text-sm text-ink-500">${formatDate(req.created)}</td>
       <td class="px-5 py-4" data-stop-click="true">
-        <span class="text-sm text-ink-500 cursor-pointer hover:text-ink-700 hover:bg-ink-50 rounded px-2 py-1 transition-colors" onclick="editDueDate(this, '${req.id}', '${req.due_date || ''}')">${formatDate(req.due_date)}</span>
+        <span class="text-sm text-ink-500 cursor-pointer hover:text-ink-700 hover:bg-ink-50 rounded px-2 py-1 transition-colors" onclick="editDueDate(this, '${escapeHtml(req.id)}', '${req.due_date || ''}')">${formatDate(req.due_date)}</span>
       </td>
       <td class="px-5 py-4">
-        ${cdRender({ id: `cd-priority-${req.id}`, value: req.priority, options: (settings.priorityList || []).map(p => ({value: p, label: p})), style: 'pill', colorType: 'priority', onChange: `updatePriority('${req.id}')`, stopClick: true })}
+        ${cdRender({ id: `cd-priority-${escapeHtml(req.id)}`, value: req.priority, options: (settings.priorityList || []).map(p => ({value: p, label: p})), style: 'pill', colorType: 'priority', onChange: `updatePriority('${escapeHtml(req.id)}')`, stopClick: true })}
       </td>
       <td class="px-5 py-4" onclick="event.stopPropagation()">
-        <button onclick="event.stopPropagation(); archiveReqFromList('${req.id}')"
+        <button onclick="event.stopPropagation(); archiveReqFromList('${escapeHtml(req.id)}')"
                 onmousedown="event.stopPropagation()"
                 class="p-1.5 rounded-full text-ink-500 hover:text-red-500 hover:bg-red-50 transition-colors"
                 title="归档" draggable="false">
@@ -981,10 +981,10 @@ function renderDetail() {
     const rSt = CD_STATUS_COLORS[r.status] || {bg:'#e8e5e0',text:'#635a50',border:'#d4cfc7'};
     const rPr = CD_PRIORITY_COLORS[r.priority] || {bg:'#d4cfc7',text:'#4a433c'};
     return `
-    <div onclick="showDetail('${r.id}')" class="sidebar-item px-4 py-3 ${r.id === req.id ? 'active' : ''}">
-      <div class="text-sm text-ink-800">${r.title}</div>
+    <div onclick="showDetail('${escapeHtml(r.id)}')" class="sidebar-item px-4 py-3 ${r.id === req.id ? 'active' : ''}">
+      <div class="text-sm text-ink-800">${escapeHtml(r.title)}</div>
       <div class="flex items-center gap-2 mt-1.5">
-        <span class="font-mono text-xs text-ink-400">${r.id}</span>
+        <span class="font-mono text-xs text-ink-400">${escapeHtml(r.id)}</span>
         <span class="inline-flex items-center gap-1 px-2 py-px rounded-full text-xs font-medium border"
               style="background:${rSt.bg};color:${rSt.text};border-color:${rSt.border}">
           <span class="w-1 h-1 rounded-full" style="background:${rSt.text}"></span>
@@ -1689,7 +1689,7 @@ function renderArchivePage() {
               <path d="M2 8h14" stroke="currentColor" stroke-width="1.5"/>
               <path d="M6 2h6v2H6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
             </svg>
-            <h3 class="font-display text-lg text-ink-800">${pl}</h3>
+            <h3 class="font-display text-lg text-ink-800">${escapeHtml(pl)}</h3>
             <span class="text-sm text-ink-500">${group._reqs.length} 个归档需求</span>
           </div>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" class="pl-chevron text-ink-500 transition-transform"><path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -1739,15 +1739,15 @@ function renderArchivePage() {
                   </thead>
                   <tbody>
                     ${reqs.map((req, idx) => `
-                      <tr class="cursor-pointer hover:bg-ink-50/60 transition-colors ${idx !== reqs.length - 1 ? 'border-b border-ink-100' : ''}" onclick="showDetail('${req.id}', 'archive')">
-                        <td class="px-4 py-3.5"><span class="font-mono text-sm text-ink-500">${req.id}</span></td>
-                        <td class="px-4 py-3.5"><span class="text-sm text-ink-800 font-medium">${req.title}</span></td>
+                      <tr class="cursor-pointer hover:bg-ink-50/60 transition-colors ${idx !== reqs.length - 1 ? 'border-b border-ink-100' : ''}" onclick="showDetail('${escapeHtml(req.id)}', 'archive')">
+                        <td class="px-4 py-3.5"><span class="font-mono text-sm text-ink-500">${escapeHtml(req.id)}</span></td>
+                        <td class="px-4 py-3.5"><span class="text-sm text-ink-800 font-medium">${escapeHtml(req.title)}</span></td>
                         <td class="px-4 py-3.5"><span class="static-pill sp-status-${req.status}">${req.status}</span></td>
                         <td class="px-4 py-3.5"><span class="static-pill sp-priority-${req.priority}">${req.priority}</span></td>
                         <td class="px-4 py-3.5 text-sm text-ink-500">${req.developer || '-'}</td>
                         <td class="px-4 py-3.5 text-sm text-ink-500">${formatDate(req.updated)}</td>
                         <td class="px-4 py-3.5" data-stop-click="true">
-                          <button onclick="event.stopPropagation(); unarchiveReq('${req.id}')"
+                          <button onclick="event.stopPropagation(); unarchiveReq('${escapeHtml(req.id)}')"
                                   class="p-1.5 rounded-full text-ink-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
                                   title="回退到需求池" draggable="false">
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M8 3L4 7M8 3l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -1836,7 +1836,7 @@ function renderSettings() {
       return pls.includes(pl);
     }).length;
     return `<div class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-ink-50 text-ink-800 rounded-full text-sm border border-ink-100 hover:border-ink-300 transition-colors">
-      <span>${pl}</span>
+      <span>${escapeHtml(pl)}</span>
       <span class="text-ink-400 text-xs">(${count})</span>
       <button onclick="removeProductLineFromSettings('${pl.replace(/'/g, "\\'")}')" class="w-4 h-4 rounded-full hover:bg-red-100 flex items-center justify-center text-ink-400 hover:text-red-500 transition-colors" title="删除产品线">
         <svg width="8" height="8" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -2317,8 +2317,8 @@ function showCreateReqModal() {
   const listContainer = document.getElementById('new-req-product-line-list');
   listContainer.innerHTML = productLines.map(pl => `
     <label class="flex items-center gap-2 cursor-pointer">
-      <input type="checkbox" name="new-req-product-line" value="${pl}" ${pl === currentProductLine ? 'checked' : ''} class="w-4 h-4 rounded border-ink-300 text-ink-800 focus:ring-ink-500">
-      <span class="text-sm text-ink-700">${pl}</span>
+      <input type="checkbox" name="new-req-product-line" value="${escapeHtml(pl)}" ${pl === currentProductLine ? 'checked' : ''} class="w-4 h-4 rounded border-ink-300 text-ink-800 focus:ring-ink-500">
+      <span class="text-sm text-ink-700">${escapeHtml(pl)}</span>
     </label>
   `).join('');
 
@@ -2697,12 +2697,12 @@ function renderSprintKanbanBoard(reqs) {
              ondrop="handleKanbanDrop(event, '${status}')">
           ${statusReqs.map(req => `
             <div draggable="true"
-                 ondragstart="handleKanbanDragStart(event, '${req.id}')"
+                 ondragstart="handleKanbanDragStart(event, '${escapeHtml(req.id)}')"
                  class="kanban-card rounded-xl shadow-sm border border-ink-100 bg-white cursor-grab relative group overflow-hidden"
-                 onclick="showDetail('${req.id}', 'sprint')">
+                 onclick="showDetail('${escapeHtml(req.id)}', 'sprint')">
               <div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:${config.accent};border-radius:12px 0 0 12px;"></div>
               <div class="p-3.5 pl-5">
-                <button onclick="event.stopPropagation(); archiveReqFromList('${req.id}')"
+                <button onclick="event.stopPropagation(); archiveReqFromList('${escapeHtml(req.id)}')"
                         onmousedown="event.stopPropagation()"
                         class="absolute top-2.5 right-2.5 w-6 h-6 rounded-full bg-ink-50 text-ink-400 hover:bg-red-50 hover:text-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10"
                         title="归档" draggable="false">
@@ -2710,10 +2710,10 @@ function renderSprintKanbanBoard(reqs) {
                 </button>
                 <div class="flex items-center gap-2 mb-2 pr-6">
                   <span style="width:6px;height:6px;border-radius:50%;background:${priorityDotColors[req.priority] || '#d4cfc7'};flex-shrink:0;" title="${req.priority}"></span>
-                  <div class="text-sm text-ink-800 flex-1 font-medium" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${req.title}</div>
+                  <div class="text-sm text-ink-800 flex-1 font-medium" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${escapeHtml(req.title)}</div>
                 </div>
                 <div class="flex items-center justify-between">
-                  <span class="font-mono text-xs text-ink-400">${req.id}</span>
+                  <span class="font-mono text-xs text-ink-400">${escapeHtml(req.id)}</span>
                   <div class="flex items-center gap-1.5 text-xs text-ink-400" data-stop-click="true">
                     ${(() => {
                       const pls = toArray(req.productLine);
@@ -2730,7 +2730,7 @@ function renderSprintKanbanBoard(reqs) {
                         ...Array.from(allPls).filter(p => p && p !== '未分类').sort().map(p => ({value: p, label: p}))
                       ];
                       const plValue = pls.length > 0 ? pls[0] : '';
-                      return cdRender({ id: `cd-kanban-pl-${req.id}`, value: plValue, options: plOptions, style: 'pill', colorType: '', onChange: `updateProductLine('${req.id}')`, stopClick: true });
+                      return cdRender({ id: `cd-kanban-pl-${escapeHtml(req.id)}`, value: plValue, options: plOptions, style: 'pill', colorType: '', onChange: `updateProductLine('${escapeHtml(req.id)}')`, stopClick: true });
                     })()}
                   </div>
                 </div>
@@ -2757,13 +2757,13 @@ function renderSprintReqTable(reqs) {
     return `
       <tr class="border-b border-ink-50 hover:bg-ink-50 transition-colors">
         <td class="px-5 py-4">
-          <span class="font-mono text-sm text-ink-500">${req.id}</span>
+          <span class="font-mono text-sm text-ink-500">${escapeHtml(req.id)}</span>
         </td>
         <td class="px-5 py-4">
-          <div class="text-sm text-ink-800 cursor-pointer hover:text-ink-600 transition-colors" onclick="showDetail('${req.id}', 'sprint')">${req.title}</div>
+          <div class="text-sm text-ink-800 cursor-pointer hover:text-ink-600 transition-colors" onclick="showDetail('${escapeHtml(req.id)}', 'sprint')">${escapeHtml(req.title)}</div>
         </td>
         <td class="px-5 py-4">
-          ${cdRender({ id: `cd-sp-status-${req.id}`, value: req.status, options: (settings.statusList || []).map(s => ({value: s, label: s})), style: 'pill', colorType: 'status', onChange: `updateStatus('${req.id}')`, stopClick: true })}
+          ${cdRender({ id: `cd-sp-status-${escapeHtml(req.id)}`, value: req.status, options: (settings.statusList || []).map(s => ({value: s, label: s})), style: 'pill', colorType: 'status', onChange: `updateStatus('${escapeHtml(req.id)}')`, stopClick: true })}
         </td>
         <td class="px-5 py-4" data-stop-click="true">
           ${(() => {
@@ -2781,14 +2781,14 @@ function renderSprintReqTable(reqs) {
               ...Array.from(allPls).filter(p => p && p !== '未分类').sort().map(p => ({value: p, label: p}))
             ];
             const plValue = pls.length > 0 ? pls[0] : '';
-            return cdRender({ id: `cd-sp-pl-${req.id}`, value: plValue, options: plOptions, style: 'pill', colorType: '', onChange: `updateProductLine('${req.id}')`, stopClick: true });
+            return cdRender({ id: `cd-sp-pl-${escapeHtml(req.id)}`, value: plValue, options: plOptions, style: 'pill', colorType: '', onChange: `updateProductLine('${escapeHtml(req.id)}')`, stopClick: true });
           })()}
         </td>
         <td class="px-5 py-4">
-          ${cdRender({ id: `cd-sp-priority-${req.id}`, value: req.priority, options: (settings.priorityList || []).map(p => ({value: p, label: p})), style: 'pill', colorType: 'priority', onChange: `updatePriority('${req.id}')`, stopClick: true })}
+          ${cdRender({ id: `cd-sp-priority-${escapeHtml(req.id)}`, value: req.priority, options: (settings.priorityList || []).map(p => ({value: p, label: p})), style: 'pill', colorType: 'priority', onChange: `updatePriority('${escapeHtml(req.id)}')`, stopClick: true })}
         </td>
         <td class="px-5 py-4" onclick="event.stopPropagation()">
-          <button onclick="event.stopPropagation(); archiveReqFromList('${req.id}')"
+          <button onclick="event.stopPropagation(); archiveReqFromList('${escapeHtml(req.id)}')"
                   class="p-1.5 rounded-full text-ink-500 hover:text-red-500 hover:bg-red-50 transition-colors"
                   title="归档" draggable="false">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 6v8h12V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 3h14v3H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
@@ -2972,7 +2972,7 @@ function renderDraftsList() {
     const productLines = getAllProductLines();
     const productLineCheckboxes = productLines.map(pl => {
       const checked = Array.isArray(draft.product_line) && draft.product_line.includes(pl) ? 'checked' : '';
-      return `<label class="inline-flex items-center gap-1"><input type="checkbox" class="draft-pl-cb w-4 h-4" value="${pl}" ${checked}>${pl}</label>`;
+      return `<label class="inline-flex items-center gap-1"><input type="checkbox" class="draft-pl-cb w-4 h-4" value="${escapeHtml(pl)}" ${checked}>${escapeHtml(pl)}</label>`;
     }).join('');
     
     return `
@@ -2997,7 +2997,7 @@ function renderDraftsList() {
         <td class="px-4 py-3" data-stop-click="true">
           <div class="flex flex-wrap gap-1 text-xs">
             ${Array.isArray(draft.product_line) && draft.product_line.length > 0
-              ? draft.product_line.map(pl => `<span class="px-1.5 py-0.5 bg-ink-100 rounded text-ink-600">${pl}</span>`).join('')
+              ? draft.product_line.map(pl => `<span class="px-1.5 py-0.5 bg-ink-100 rounded text-ink-600">${escapeHtml(pl)}</span>`).join('')
               : '<span class="text-ink-400">-</span>'}
           </div>
         </td>
@@ -3058,7 +3058,7 @@ function renderArchivedDrafts() {
       <td class="px-4 py-2">
         <div class="flex flex-wrap gap-1 text-xs">
           ${Array.isArray(draft.product_line) && draft.product_line.length > 0 
-            ? draft.product_line.map(pl => `<span class="px-1.5 py-0.5 bg-ink-100 rounded text-ink-600">${pl}</span>`).join('')
+            ? draft.product_line.map(pl => `<span class="px-1.5 py-0.5 bg-ink-100 rounded text-ink-600">${escapeHtml(pl)}</span>`).join('')
             : '<span class="text-ink-400">-</span>'}
         </div>
       </td>
@@ -3161,7 +3161,7 @@ function showDraftPreviewModal(draft) {
     html += `<div class="mb-4"><h4 class="text-sm font-semibold text-ink-700 mb-2">来源</h4><p class="text-ink-600">${draft.source}</p></div>`;
   }
   if (draft.product_line && draft.product_line.length > 0) {
-    html += `<div class="mb-4"><h4 class="text-sm font-semibold text-ink-700 mb-2">产品线</h4><div class="flex gap-2">${draft.product_line.map(pl => `<span class="px-2 py-1 bg-ink-100 rounded text-sm">${pl}</span>`).join('')}</div></div>`;
+    html += `<div class="mb-4"><h4 class="text-sm font-semibold text-ink-700 mb-2">产品线</h4><div class="flex gap-2">${draft.product_line.map(pl => `<span class="px-2 py-1 bg-ink-100 rounded text-sm">${escapeHtml(pl)}</span>`).join('')}</div></div>`;
   }
   if (draft.tags && draft.tags.length > 0) {
     html += `<div class="mb-4"><h4 class="text-sm font-semibold text-ink-700 mb-2">标签</h4><div class="flex gap-2">${draft.tags.map(tag => `<span class="px-2 py-1 bg-clay-100 text-clay-700 rounded text-sm">${tag}</span>`).join('')}</div></div>`;
@@ -3233,7 +3233,7 @@ function showDraftModal(draftId = null) {
   container.innerHTML = productLines.map(pl => {
     const checked = editingDraft && Array.isArray(editingDraft.product_line) && editingDraft.product_line.includes(pl) ? 'checked' : '';
     return `<label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-ink-50 rounded-lg cursor-pointer hover:bg-ink-100 text-sm">
-      <input type="checkbox" class="draft-pl-cb w-4 h-4" value="${pl}" ${checked}>${pl}
+      <input type="checkbox" class="draft-pl-cb w-4 h-4" value="${escapeHtml(pl)}" ${checked}>${escapeHtml(pl)}
     </label>`;
   }).join('') || '<span class="text-sm text-ink-400">暂无产品线</span>';
   
@@ -3346,7 +3346,7 @@ function openPublishModal(draftId) {
   container.innerHTML = productLines.map(pl => {
     const checked = currentPL.includes(pl) ? 'checked' : '';
     return `<label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-ink-50 rounded-lg cursor-pointer hover:bg-ink-100 text-sm">
-      <input type="checkbox" class="publish-pl-cb w-4 h-4" value="${pl}" ${checked}>${pl}
+      <input type="checkbox" class="publish-pl-cb w-4 h-4" value="${escapeHtml(pl)}" ${checked}>${escapeHtml(pl)}
     </label>`;
   }).join('') || '<span class="text-sm text-ink-400">暂无产品线</span>';
   
