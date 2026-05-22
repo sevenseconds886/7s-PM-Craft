@@ -2,12 +2,18 @@
 let currentData = { requirements: [], sprints: [], drafts: [] };
 let settings = { statusList: [], priorityList: [] };
 let currentProductLine = '';
+let cachedStats = { physicalProductLines: [], productLineCounts: {} };
+let isRenderingHome = false;
 let currentReqId = null;
 let currentPlatform = 'web';
 let docPanelOpen = false;
 let docEditMode = false;
 let draggedReqId = null;
 let isSearchMode = false;
+let listPageSize = 50;
+let listCurrentPage = 1;
+let listAllReqs = [];
+let isLoadingMore = false;
 
 // HTML 转义工具（防止 XSS）
 function escapeHtml(str) {
@@ -516,11 +522,17 @@ function performProductLineSearch() {
 
 // 渲染首页
 function renderHome() {
+  if (isRenderingHome) return;
+  isRenderingHome = true;
+
   const statsContainer = document.getElementById('stats-container');
   const productLinesContainer = document.getElementById('product-lines');
   const archivedCard = document.getElementById('archived-card');
 
-  if (!statsContainer || !productLinesContainer) return;
+  if (!statsContainer || !productLinesContainer) {
+    isRenderingHome = false;
+    return;
+  }
 
   // 使用本地数据计算统计（同步渲染，不阻塞）
   let statsData = {
@@ -542,9 +554,15 @@ function renderHome() {
   fetch('/api/stats')
     .then(res => res.ok ? res.json() : null)
     .then(remoteStats => {
-      if (remoteStats && JSON.stringify(remoteStats.physicalProductLines) !== JSON.stringify(statsData.physicalProductLines)) {
-        // 物理产品线列表有变化，重新渲染
-        renderHome();
+      if (remoteStats) {
+        const oldPLs = JSON.stringify(cachedStats.physicalProductLines);
+        const newPLs = JSON.stringify(remoteStats.physicalProductLines || []);
+        cachedStats.physicalProductLines = remoteStats.physicalProductLines || [];
+        cachedStats.productLineCounts = remoteStats.productLineCounts || {};
+        if (oldPLs !== newPLs) {
+          // 物理产品线列表有变化，重新渲染
+          renderHome();
+        }
       }
     })
     .catch(() => {}); // 静默失败，不影响当前渲染
@@ -599,8 +617,8 @@ function renderHome() {
   }
 
   // ===== 产品线卡片：只显示有物理文件夹的产品线 =====
-  const physicalPLs = statsData.physicalProductLines || [];
-  const plCounts = statsData.productLineCounts || {};
+  const physicalPLs = cachedStats.physicalProductLines || statsData.physicalProductLines || [];
+  const plCounts = cachedStats.productLineCounts || statsData.productLineCounts || {};
 
   // 构建产品线统计（基于 mainProductLine）
   const plStats = new Map();
@@ -616,10 +634,12 @@ function renderHome() {
   }
 
   // 只保留有物理文件夹的产品线 + 未分类兜底
-  let productLines = physicalPLs.filter(pl => pl !== '未分类');
+  // 从 plStats 中提取所有产品线，过滤出物理存在的（除了未分类）
+  const allPLsWithReqs = Array.from(plStats.keys());
+  let productLines = allPLsWithReqs.filter(pl => pl !== '未分类' && physicalPLs.includes(pl));
 
   // 如果存在未分类需求，添加未分类卡片
-  const hasUncategorized = plStats.has('未分类') || !physicalPLs.length;
+  const hasUncategorized = plStats.has('未分类');
 
   // 搜索过滤
   if (productLineSearchQuery) {
@@ -663,6 +683,7 @@ function renderHome() {
   }
 
   productLinesContainer.innerHTML = cardsHtml;
+  isRenderingHome = false;
 }
 
 // 显示首页
@@ -814,6 +835,10 @@ function renderList() {
     reqs = reqs.filter(r => r.requester && r.requester.toLowerCase().includes(activeFilters.requester));
   }
 
+  // 保存完整列表用于分页
+  listAllReqs = reqs;
+  listCurrentPage = 1;
+
   // 状态标签
   const statusTabs = document.getElementById('status-tabs');
   if (isSearchMode) {
@@ -835,7 +860,7 @@ function renderList() {
   if (showTable) {
     document.getElementById('kanban-board').classList.add('hidden');
     document.getElementById('table-view').classList.remove('hidden');
-    renderReqTable(reqs);
+    renderReqTable(reqs, true);
   } else {
     document.getElementById('kanban-board').classList.remove('hidden');
     document.getElementById('table-view').classList.add('hidden');
@@ -930,15 +955,37 @@ function renderKanban(reqs) {
   }).join('');
 }
 
-function renderReqTable(reqs) {
+function renderReqTable(reqs, reset = false) {
   const listContainer = document.getElementById('requirements-list');
+  const loadMoreContainer = document.getElementById('load-more-container');
 
   if (reqs.length === 0) {
-    listContainer.innerHTML = '<tr><td colspan="12" class="px-5 py-12 text-center text-ink-500 text-sm">暂无需求</td></tr>';
+    listContainer.innerHTML = '<tr><td colspan="13" class="px-5 py-12 text-center text-ink-500 text-sm">暂无需求</td></tr>';
+    if (loadMoreContainer) loadMoreContainer.classList.add('hidden');
     return;
   }
 
-  listContainer.innerHTML = reqs.map(req => {
+  // 分页逻辑
+  const totalCount = reqs.length;
+  const pageCount = Math.ceil(totalCount / listPageSize);
+  const currentPage = reset ? 1 : listCurrentPage;
+  if (reset) listCurrentPage = 1;
+
+  const endIndex = currentPage * listPageSize;
+  const pageReqs = reqs.slice(0, endIndex);
+  const hasMore = endIndex < totalCount;
+
+  // 缓存产品线选项，避免每行重复计算
+  const allPls = new Set([
+    ...(settings.productLines || []),
+    ...currentData.requirements.flatMap(r => toArray(r.productLine))
+  ]);
+  const plOptions = [
+    {value: '', label: '未分类'},
+    ...Array.from(allPls).filter(p => p && p !== '未分类').sort().map(p => ({value: p, label: p}))
+  ];
+
+  const rowsHtml = pageReqs.map(req => {
     // 原型标签
     const hasWeb = req.hasPrototype && req.hasPrototype.web;
     const hasMobile = req.hasPrototype && req.hasPrototype.mobile;
@@ -965,12 +1012,12 @@ function renderReqTable(reqs) {
       ...Array.from(allPls).filter(p => p && p !== '未分类').sort().map(p => ({value: p, label: p}))
     ];
 
-    // 关联产品线标签HTML
+    // 关联产品线标签HTML（用于单独列）
     const relatedTagsHtml = relatedPLs.length > 0
-      ? `<div class="flex flex-wrap gap-1 mt-1">${relatedPLs.map(pl =>
-          `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-stone-100 text-stone-500 border border-stone-200">${escapeHtml(pl)}</span>`
+      ? `<div class="flex flex-wrap gap-1">${relatedPLs.map(pl =>
+          `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs text-ink-600 bg-ink-50 border border-ink-100">${escapeHtml(pl)}</span>`
         ).join('')}</div>`
-      : '';
+      : '<span class="text-xs text-ink-300">-</span>';
 
     return `
     <tr class="border-b border-ink-50 hover:bg-ink-50 transition-colors">
@@ -982,6 +1029,8 @@ function renderReqTable(reqs) {
       </td>
       <td class="px-5 py-4" data-stop-click="true">
         ${cdRender({ id: `cd-pl-${escapeHtml(req.id)}`, value: mainPL, options: plOptions, style: 'pill', colorType: '', onChange: `updateProductLine('${escapeHtml(req.id)}')`, stopClick: true })}
+      </td>
+      <td class="px-5 py-4">
         ${relatedTagsHtml}
       </td>
       <td class="px-5 py-4">
@@ -1010,6 +1059,52 @@ function renderReqTable(reqs) {
       </td>
     </tr>
   `}).join('');
+
+  // 渲染表格内容
+  if (reset) {
+    listContainer.innerHTML = rowsHtml;
+  } else {
+    // 追加模式：移除旧的"加载更多"行，追加新行
+    const oldLoadMore = listContainer.querySelector('.load-more-row');
+    if (oldLoadMore) oldLoadMore.remove();
+    listContainer.insertAdjacentHTML('beforeend', rowsHtml);
+  }
+
+  // 添加 loading 行（自动滚动加载）
+  if (hasMore) {
+    listContainer.insertAdjacentHTML('beforeend', `
+      <tr class="load-more-row" id="load-more-trigger">
+        <td colspan="13" class="px-5 py-4 text-center">
+          <div class="flex items-center justify-center gap-2 text-sm text-ink-400">
+            <svg class="animate-spin h-4 w-4 text-ink-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>加载中...</span>
+          </div>
+        </td>
+      </tr>
+    `);
+    // 注册 IntersectionObserver 自动加载
+    setTimeout(() => {
+      const trigger = document.getElementById('load-more-trigger');
+      if (trigger && !trigger._observer) {
+        const observer = new IntersectionObserver((entries) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting && !isLoadingMore) {
+              isLoadingMore = true;
+              listCurrentPage++;
+              renderReqTable(listAllReqs, false);
+              // 延迟重置标志，避免重复触发
+              setTimeout(() => { isLoadingMore = false; }, 300);
+            }
+          });
+        }, { rootMargin: '100px' });
+        observer.observe(trigger);
+        trigger._observer = observer;
+      }
+    }, 0);
+  }
 }
 
 // 看板拖拽事件

@@ -22,40 +22,7 @@ function toArray(v) {
   return Array.isArray(v) ? v : (v ? [v] : []);
 }
 
-// 工具函数：统一处理新旧产品线格式
-function normalizeProductLines(data) {
-  let mainProductLine = '';
-  let relatedProductLines = [];
-  let productLine = [];
-
-  if (typeof data.product_line === 'string') {
-    productLine = data.product_line ? [data.product_line] : [];
-  } else if (Array.isArray(data.product_line)) {
-    productLine = [...data.product_line];
-  }
-
-  if (data.main_product_line && typeof data.main_product_line === 'string') {
-    mainProductLine = data.main_product_line;
-    if (typeof data.related_product_lines === 'string') {
-      relatedProductLines = data.related_product_lines ? [data.related_product_lines] : [];
-    } else if (Array.isArray(data.related_product_lines)) {
-      relatedProductLines = [...data.related_product_lines];
-    }
-    productLine = [mainProductLine, ...relatedProductLines.filter(pl => pl !== mainProductLine)];
-  } else {
-    if (productLine.length > 0) {
-      mainProductLine = productLine[0];
-      relatedProductLines = productLine.slice(1);
-    } else {
-      mainProductLine = '未分类';
-      productLine = ['未分类'];
-    }
-  }
-
-  return { mainProductLine, relatedProductLines, productLine };
-}
-
-// 扫描所有需求文件
+// 扫描所有需求文件（返回物理文件夹位置）
 function scanRequirementFiles() {
   const files = [];
 
@@ -74,7 +41,7 @@ function scanRequirementFiles() {
       for (const reqDir of reqDirs) {
         const reqFile = path.join(plPath, reqDir.name, 'requirement.md');
         if (fs.existsSync(reqFile)) {
-          files.push({ filePath: reqFile, isArchive, productLine: pl.name });
+          files.push({ filePath: reqFile, isArchive, physicalPL: pl.name });
         }
       }
     }
@@ -88,7 +55,7 @@ function scanRequirementFiles() {
 // 解析 requirement.md
 function parseRequirement(filePath) {
   const content = fs.readFileSync(filePath, 'utf-8');
-  const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
   if (!match) return null;
 
   try {
@@ -101,12 +68,23 @@ function parseRequirement(filePath) {
   }
 }
 
-// 构建新的 YAML front matter
-function buildNewFrontMatter(frontMatter) {
+// 构建新的 front matter
+function buildNewFrontMatter(frontMatter, physicalPL) {
   const fm = { ...frontMatter };
-  const { mainProductLine, relatedProductLines, productLine } = normalizeProductLines(fm);
 
-  // 同时写入新旧字段
+  // 获取旧 product_line 数组
+  const oldPLs = toArray(fm.product_line);
+
+  // main_product_line = 物理文件夹位置
+  const mainProductLine = physicalPL || '未分类';
+
+  // related_product_lines = 旧数组中排除 main 和 '未分类' 的部分
+  // 如果旧数组不包含 main，则整个旧数组（除'未分类'外）都作为 related
+  const relatedProductLines = oldPLs.filter(pl => pl && pl !== mainProductLine && pl !== '未分类');
+
+  // product_line = [main, ...related]（兼容旧格式）
+  const productLine = [mainProductLine, ...relatedProductLines].filter(Boolean);
+
   fm.main_product_line = mainProductLine;
   if (relatedProductLines.length > 0) {
     fm.related_product_lines = relatedProductLines;
@@ -157,7 +135,7 @@ async function main() {
   let skippedCount = 0;
   let errorCount = 0;
 
-  for (const { filePath, isArchive } of files) {
+  for (const { filePath, isArchive, physicalPL } of files) {
     const parsed = parseRequirement(filePath);
     if (!parsed) {
       console.error(`  ❌ 解析失败: ${filePath}`);
@@ -167,9 +145,11 @@ async function main() {
 
     const { frontMatter, body } = parsed;
 
-    // 检查是否已经是新格式
-    if (frontMatter.main_product_line) {
-      console.log(`  ⏭️  已迁移，跳过: ${path.basename(path.dirname(filePath))}`);
+    // 检查是否已经是正确的新格式（main_product_line 等于物理文件夹位置，且没有脏数据'未分类'在related中）
+    const oldRelated = toArray(frontMatter.related_product_lines);
+    const hasDirtyData = oldRelated.includes('未分类') || toArray(frontMatter.product_line).includes('未分类');
+    if (frontMatter.main_product_line === physicalPL && !hasDirtyData) {
+      console.log(`  ⏭️  已正确迁移，跳过: ${path.basename(path.dirname(filePath))}`);
       skippedCount++;
       continue;
     }
@@ -178,13 +158,15 @@ async function main() {
     backup.push({
       file: filePath,
       oldProductLine: frontMatter.product_line,
+      oldMainProductLine: frontMatter.main_product_line,
+      physicalPL,
       isArchive
     });
 
     // 构建新 front matter
-    const newFrontMatter = buildNewFrontMatter(frontMatter);
+    const newFrontMatter = buildNewFrontMatter(frontMatter, physicalPL);
 
-    console.log(`  📝 ${path.basename(path.dirname(filePath))}: ${JSON.stringify(frontMatter.product_line)} → main=${newFrontMatter.main_product_line}, related=${JSON.stringify(newFrontMatter.related_product_lines || [])}`);
+    console.log(`  📝 ${path.basename(path.dirname(filePath))}: physical=${physicalPL}, oldPL=${JSON.stringify(frontMatter.product_line)} → main=${newFrontMatter.main_product_line}, related=${JSON.stringify(newFrontMatter.related_product_lines || [])}`);
 
     if (!dryRun) {
       const newContent = `---\n${toYamlString(newFrontMatter)}\n---\n\n${body}`;
