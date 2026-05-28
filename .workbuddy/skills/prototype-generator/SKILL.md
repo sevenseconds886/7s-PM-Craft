@@ -78,6 +78,7 @@ Step 1: 采集设计系统 → Step 2: 解析需求 → Step 3: 确认页面 →
 | 功能结构 | `## 功能结构` (flowchart LR) | 导航结构 |
 | 业务流程 | `## 业务流程` (flowchart TD) | 交互逻辑依据 |
 | 需求说明 | `## 需求说明` | 组件行为定义 |
+| 标注说明 | `## 标注说明` | 原型可视化标注依据 |
 
 **如果文档缺少 `## 页面设计`**：根据功能结构图和需求说明推导页面列表，向用户确认。
 
@@ -121,13 +122,14 @@ Step 1: 采集设计系统 → Step 2: 解析需求 → Step 3: 确认页面 →
 </script>
 ```
 
-**生成规则**：
+**生成规则**:
 - 外层用 `<div id="page-xxx" class="page-section">` 包裹
 - 使用 Tailwind 语义色名（`ink-*` / `terracotta`），**禁止硬编码 hex**
 - 导航跳转用 `navigate('page-xxx')`
 - 页面 JS 放 `<script>` 标签
 - 不写 `<html>/<head>/<body>`
 - 行内注释标记区块（`<!-- 搜索栏 -->`），方便后续定位
+- **标注处理**：如需求文档有 `## 标注说明`，根据 `目标位置` 匹配到对应元素，添加 `data-annotation-id="A001"` 属性。标注渲染由组装步骤统一注入 CSS/JS，单页生成时不处理样式
 
 **组件代码参考** → 详见 `references/component-spec.md`，包含：
 - 按钮（主/次/危险/图标）含 DO/DON'T
@@ -180,12 +182,17 @@ Step 1: 采集设计系统 → Step 2: 解析需求 → Step 3: 确认页面 →
 </html>
 ```
 
-**组装规则**：
+**组装规则**:
 1. 页面 `<div>` 片段插入 `<main>`
 2. 页面 `<script>` 合并到 `</body>` 前
 3. 全局路由 `navigate()` + Toast
 4. `<meta name="pm-craft-requirement-id">` 嵌入需求 ID
 5. Tailwind config 填入设计系统色值
+6. **标注渲染（如需求含 `## 标注说明`）**：
+   - 注入标注样式：数字角标（圆形，terracotta 背景，白字，12px）
+   - 注入标注交互：hover 角标显示 tooltip（含类型 + 内容），点击角标展开侧边栏标注列表
+   - 标注角标定位：`position: absolute; top: -6px; right: -6px;`（目标元素需 `position: relative`）
+   - 标注数据从 `## 标注说明` 表格解析，注入为全局 JS 数组 `window.__annotations`
 
 ### Step 6: PM-Craft 桥接（可选）
 
@@ -288,6 +295,7 @@ AI 生成原型时最常见的"AI味"错误，**绝对不能出现**：
 - [ ] 色值用 Tailwind 语义类名，无硬编码 hex
 - [ ] 圆角只有 rounded-full 和 rounded-xl
 - [ ] 源文件 `pages/` 保留，方便后续修改
+- [ ] 标注（如有）：目标元素含 `data-annotation-id`，角标可见，tooltip 内容正确，侧边栏列表完整
 
 ---
 
