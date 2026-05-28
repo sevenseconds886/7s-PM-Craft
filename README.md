@@ -8,7 +8,7 @@
 
 ### 启动
 
-打开终端，进入项目目录，运行 `npm start`，浏览器访问 **http://localhost:3300**
+打开终端，进入项目目录，运行 `npm start`，浏览器访问 **http://localhost:3456**
 
 ### 核心流程
 
@@ -85,7 +85,7 @@ PRD 写完后，在对话中要求生成原型。AI 会：
 cd workbuddy-file
 npm install        # 首次安装依赖
 npm start          # 启动服务
-# 浏览器打开 http://localhost:3300
+# 浏览器打开 http://localhost:3456
 ```
 
 **零配置原则**：所有数据保存在本地文件系统，不依赖外部数据库。

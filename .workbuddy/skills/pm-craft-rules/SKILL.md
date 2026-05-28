@@ -277,7 +277,7 @@ interface DesignSystem {
 
 ### 4.4 API 端点定义
 
-PM-Craft server 运行在 `http://localhost:3300`。
+PM-Craft server 运行在 `http://localhost:3456`。
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
@@ -329,7 +329,7 @@ PM-Craft server 运行在 `http://localhost:3300`。
 
 ### 5.4 状态和优先级值来源
 
-执行命令前，先调用 `GET http://localhost:3300/api/settings` 获取：
+执行命令前，先调用 `GET http://localhost:3456/api/settings` 获取：
 - `statusList`：可用状态列表
 - `priorityList`：可用优先级列表
 
@@ -371,7 +371,7 @@ PM-Craft server 运行在 `http://localhost:3300`。
 5. 写回文件
 6. **如果新状态为"归档"**，同时执行归档操作（移动文件夹到 `archive/`）
 
-**状态值来源：** 先调用 `GET http://localhost:3300/api/settings` 获取 `statusList`，若用户输入的状态不在列表中，提示可用状态。
+**状态值来源：** 先调用 `GET http://localhost:3456/api/settings` 获取 `statusList`，若用户输入的状态不在列表中，提示可用状态。
 
 ### 5.8 `/prd-priority` 执行流程
 
@@ -381,7 +381,7 @@ PM-Craft server 运行在 `http://localhost:3300`。
 4. 更新 `updated` 字段
 5. 写回文件
 
-**优先级值来源：** 先调用 `GET http://localhost:3300/api/settings` 获取 `priorityList`。
+**优先级值来源：** 先调用 `GET http://localhost:3456/api/settings` 获取 `priorityList`。
 
 **优先级语义（参考）：**
 - P0：紧急且重要，阻断主流程

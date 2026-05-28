@@ -9,7 +9,7 @@ module.exports = defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'list',
   use: {
-    baseURL: process.env.TEST_BASE_URL || 'http://localhost:3300',
+    baseURL: process.env.TEST_BASE_URL || 'http://localhost:3456',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -20,8 +20,8 @@ module.exports = defineConfig({
     },
   ],
   webServer: {
-    command: `set PORT=${process.env.PORT || 3300} && node server.js`,
-    port: parseInt(process.env.PORT || '3300', 10),
+    command: `set PORT=${process.env.PORT || 3456} && node server.js`,
+    port: parseInt(process.env.PORT || '3456', 10),
     reuseExistingServer: !process.env.CI,
     timeout: 10000,
   },
