@@ -33,7 +33,7 @@ agent_created: true
 
 > 完整端点列表见 `pm-craft-rules` §4.4
 
-PM-Craft server 运行在 `http://localhost:3456`。本 Skill 常用端点：
+PM-Craft server 运行在 `http://localhost:3300`。本 Skill 常用端点：
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
@@ -169,7 +169,7 @@ Sprint Manager 的 API 端点与 PM-Craft Web 平台共用同一个 server.js：
 **启动 server：**
 ```bash
 node server.js
-# 默认端口 3456
+# 默认端口 3300
 ```
 
 ## 常用工作流

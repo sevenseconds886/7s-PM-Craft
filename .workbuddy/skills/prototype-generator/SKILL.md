@@ -44,7 +44,7 @@ Step 1: 采集设计系统 → Step 2: 解析需求 → Step 3: 确认页面 →
 
 1. **用户直接提供** designSystem 对象 → 直接使用
 2. **项目根目录** `.design-system.json` 文件 → 读取使用
-3. **PM-Craft Settings** → `GET http://localhost:3456/api/settings` 读取
+3. **PM-Craft Settings** → `GET http://localhost:3300/api/settings` 读取
 4. **默认陶土色系** → 内置于本 Skill（见下方）
 
 向用户确认设计系统来源：
@@ -197,7 +197,7 @@ Step 1: 采集设计系统 → Step 2: 解析需求 → Step 3: 确认页面 →
 ### Step 6: PM-Craft 桥接（可选）
 
 ```
-若 http://localhost:3456 可达：
+若 http://localhost:3300 可达：
   POST /api/requirements/{id}/prototype/import
   Body: { "content": "<完整HTML>", "platform": "web" }
 

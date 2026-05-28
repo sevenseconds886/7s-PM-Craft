@@ -693,7 +693,7 @@ const { request: pwRequest } = require('@playwright/test');
 
 test.describe('API: POST /api/requirements/import', () => {
   let apiContext;
-  const API_BASE = `http://localhost:${process.env.PORT || 3456}`;
+  const API_BASE = `http://localhost:${process.env.PORT || 3300}`;
 
   test.beforeAll(async () => {
     apiContext = await pwRequest.newContext({ baseURL: API_BASE });
@@ -824,7 +824,7 @@ test.describe('API: POST /api/requirements/import', () => {
 
 test.describe('API: POST /api/requirements/:id/prototype/import', () => {
   let apiContext;
-  const API_BASE = `http://localhost:${process.env.PORT || 3456}`;
+  const API_BASE = `http://localhost:${process.env.PORT || 3300}`;
   let testReqId;
 
   test.beforeAll(async () => {
@@ -930,7 +930,7 @@ test.describe('API: POST /api/requirements/:id/prototype/import', () => {
 
 test.describe('API: /api/drafts (需求池)', () => {
   let apiContext;
-  const API_BASE = `http://localhost:${process.env.PORT || 3456}`;
+  const API_BASE = `http://localhost:${process.env.PORT || 3300}`;
   let createdDraftId;
 
   test.beforeAll(async () => {

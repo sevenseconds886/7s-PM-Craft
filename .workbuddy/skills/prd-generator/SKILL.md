@@ -196,7 +196,7 @@ tags: []
 ### Step 4: PM-Craft 桥接（可选）
 
 ```
-若 http://localhost:3456 可达：
+若 http://localhost:3300 可达：
   询问"是否自动导入到 PM-Craft？"
   若同意 → POST /api/requirements/import
     Body: { "content": "<完整MD>", "options": { "product_line": ["产品线"] } }
