@@ -26,6 +26,13 @@ app.use(express.static(path.join(WORKSPACE, 'public')));
 app.use('/products', express.static(path.join(WORKSPACE, 'products')));
 app.use('/archive', express.static(path.join(WORKSPACE, 'archive')));
 app.use('/drafts', express.static(path.join(WORKSPACE, 'drafts')));
+app.use('/ideas', express.static(path.join(WORKSPACE, 'ideas')));
+
+// 确保 ideas 目录存在
+const ideasDir = path.join(WORKSPACE, 'ideas');
+if (!fs.existsSync(ideasDir)) {
+  fs.mkdirSync(ideasDir, { recursive: true });
+}
 
 // ============================================================================
 // 错误码常量定义
@@ -307,6 +314,71 @@ function getNextDraftId() {
   const maxNum = Math.max(...uniqueNums);
   const nextNum = String(maxNum + 1).padStart(6, '0');
   return `DRAFT-${nextNum}`;
+}
+
+// ============================================================================
+// 工具函数：扫描所有灵感
+// ============================================================================
+function scanIdeas() {
+  const ideas = [];
+  const ideasDir = path.join(WORKSPACE, 'ideas');
+
+  if (!fs.existsSync(ideasDir)) {
+    fs.mkdirSync(ideasDir, { recursive: true });
+    return ideas;
+  }
+
+  const folders = fs.readdirSync(ideasDir, { withFileTypes: true })
+    .filter(f => f.isDirectory() && /^IDEA-\d+-.+$/.test(f.name));
+
+  for (const folder of folders) {
+    const folderPath = path.join(ideasDir, folder.name);
+    const ideaFile = path.join(folderPath, 'idea.md');
+
+    if (!fs.existsSync(ideaFile)) continue;
+
+    try {
+      const content = fs.readFileSync(ideaFile, 'utf-8');
+      const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+
+      if (match) {
+        const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
+
+        ideas.push({
+          id: frontMatter.id || folder.name,
+          title: frontMatter.title || folder.name,
+          content: frontMatter.content || '',
+          tags: frontMatter.tags || [],
+          created_at: frontMatter.created_at,
+          updated_at: frontMatter.updated_at,
+          converted_to: frontMatter.converted_to || null,
+          bodyPath: ideaFile,
+          folderPath: folderPath
+        });
+      }
+    } catch (e) {
+      console.error('解析灵感文件夹失败:', folder.name, e.message);
+    }
+  }
+
+  return ideas;
+}
+
+// ============================================================================
+// 工具函数：生成下一个可用灵感 ID
+// ============================================================================
+function getNextIdeaId() {
+  const ideas = scanIdeas();
+  if (ideas.length === 0) return 'IDEA-000001';
+
+  const uniqueNums = new Set(ideas.map(i => {
+    const match = (i.id || '').match(/IDEA-(\d+)/);
+    return match ? parseInt(match[1], 10) : 0;
+  }));
+
+  const maxNum = Math.max(...uniqueNums);
+  const nextNum = String(maxNum + 1).padStart(6, '0');
+  return `IDEA-${nextNum}`;
 }
 
 // ============================================================================
@@ -831,6 +903,320 @@ app.delete('/api/drafts/:id', (req, res) => {
   } catch (err) {
     console.error('删除草稿失败:', err);
     res.status(500).json({ error: '删除失败: ' + err.message });
+  }
+});
+
+// ============================================================================
+// API：获取灵感列表
+// ============================================================================
+app.get('/api/ideas', (req, res) => {
+  const ideas = scanIdeas();
+  res.json({ ideas });
+});
+
+// ============================================================================
+// API：创建灵感
+// ============================================================================
+app.post('/api/ideas', (req, res) => {
+  try {
+    const { title, content = '', tags = [] } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: '标题为必填项' });
+    }
+
+    const id = getNextIdeaId();
+    const today = new Date().toISOString();
+    const slug = generateSlug(title);
+    const folderName = `${id}-${slug}`;
+
+    const ideasDir = path.join(WORKSPACE, 'ideas');
+    if (!fs.existsSync(ideasDir)) {
+      fs.mkdirSync(ideasDir, { recursive: true });
+    }
+
+    const folderPath = path.join(ideasDir, folderName);
+    if (fs.existsSync(folderPath)) {
+      return res.status(400).json({ error: '灵感已存在' });
+    }
+    fs.mkdirSync(folderPath, { recursive: true });
+
+    const filePath = path.join(folderPath, 'idea.md');
+
+    const frontMatter = {
+      id,
+      title: title.trim(),
+      content,
+      tags: Array.isArray(tags) ? tags : [],
+      created_at: today,
+      updated_at: today,
+      converted_to: null
+    };
+
+    const yamlStr = yaml.dump(frontMatter, { lineWidth: -1, quotingType: '"', forceQuotes: true });
+    const body = `# ${title.trim()}\n\n${content}`;
+    const fileContent = `---\n${yamlStr}---\n${body}`;
+
+    fs.writeFileSync(filePath, fileContent, 'utf8');
+
+    res.json({ success: true, id, path: folderName });
+  } catch (err) {
+    console.error('创建灵感失败:', err);
+    res.status(500).json({ error: '创建失败: ' + err.message });
+  }
+});
+
+// ============================================================================
+// API：获取单个灵感
+// ============================================================================
+app.get('/api/ideas/:id', (req, res) => {
+  const ideas = scanIdeas();
+  const idea = ideas.find(i => i.id === req.params.id);
+
+  if (!idea) {
+    return res.status(404).json({ error: '灵感不存在' });
+  }
+
+  res.json({ idea });
+});
+
+// ============================================================================
+// API：更新灵感
+// ============================================================================
+app.put('/api/ideas/:id', (req, res) => {
+  try {
+    const ideas = scanIdeas();
+    const idea = ideas.find(i => i.id === req.params.id);
+
+    if (!idea) {
+      return res.status(404).json({ error: '灵感不存在' });
+    }
+
+    const { title, content, tags } = req.body;
+    const today = new Date().toISOString();
+
+    let fileContent = fs.readFileSync(idea.bodyPath, 'utf-8');
+    const match = fileContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+
+    if (match) {
+      const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA }) || {};
+      if (title) frontMatter.title = title;
+      if (content !== undefined) frontMatter.content = content;
+      if (tags) frontMatter.tags = tags;
+      frontMatter.updated_at = today;
+
+      const newTitle = title || frontMatter.title || '无标题';
+      const newContent = content !== undefined ? content : frontMatter.content || '';
+      const newBody = `# ${newTitle}\n\n${newContent}`;
+      fileContent = `---\n${yaml.dump(frontMatter)}---\n${newBody}`;
+    }
+
+    // 如果标题变了，重命名文件夹
+    if (title && title !== idea.title) {
+      const oldFolderPath = idea.folderPath;
+      const slug = generateSlug(title);
+      const newFolderName = `${idea.id}-${slug}`;
+      const newFolderPath = path.join(WORKSPACE, 'ideas', newFolderName);
+
+      if (!fs.existsSync(newFolderPath)) {
+        fs.mkdirSync(newFolderPath, { recursive: true });
+        const newBodyPath = path.join(newFolderPath, 'idea.md');
+        fs.writeFileSync(newBodyPath, fileContent, 'utf-8');
+
+        // 删除旧文件夹
+        try {
+          execSync(`rmdir /S /Q "${oldFolderPath}"`, { stdio: 'ignore', windowsHide: true });
+        } catch (e) {
+          fs.rmSync(oldFolderPath, { recursive: true, force: true });
+        }
+        res.json({ success: true, id: req.params.id });
+        return;
+      }
+    }
+
+    fs.writeFileSync(idea.bodyPath, fileContent, 'utf-8');
+    res.json({ success: true, id: req.params.id });
+  } catch (err) {
+    console.error('更新灵感失败:', err);
+    res.status(500).json({ error: '更新失败: ' + err.message });
+  }
+});
+
+// ============================================================================
+// API：删除灵感
+// ============================================================================
+app.delete('/api/ideas/:id', (req, res) => {
+  try {
+    const ideas = scanIdeas();
+    const idea = ideas.find(i => i.id === req.params.id);
+
+    if (!idea) {
+      return res.status(404).json({ error: '灵感不存在' });
+    }
+
+    if (idea.folderPath && fs.existsSync(idea.folderPath)) {
+      try {
+        execSync(`rmdir /S /Q "${idea.folderPath}"`, { stdio: 'ignore', windowsHide: true });
+      } catch (e) {
+        fs.rmSync(idea.folderPath, { recursive: true, force: true });
+      }
+    } else if (idea.bodyPath && fs.existsSync(idea.bodyPath)) {
+      fs.unlinkSync(idea.bodyPath);
+    }
+
+    res.json({ success: true, id: req.params.id });
+  } catch (err) {
+    console.error('删除灵感失败:', err);
+    res.status(500).json({ error: '删除失败: ' + err.message });
+  }
+});
+
+// ============================================================================
+// API：灵感转草稿
+// ============================================================================
+app.post('/api/ideas/:id/convert-to-draft', (req, res) => {
+  try {
+    const ideas = scanIdeas();
+    const idea = ideas.find(i => i.id === req.params.id);
+
+    if (!idea) {
+      return res.status(404).json({ error: '灵感不存在' });
+    }
+
+    const draftId = getNextDraftId();
+    const slug = generateSlug(idea.title || '无标题');
+    const folderName = `${draftId}-${slug}`;
+    const today = new Date().toISOString();
+
+    const draftsDir = path.join(WORKSPACE, 'drafts');
+    if (!fs.existsSync(draftsDir)) {
+      fs.mkdirSync(draftsDir, { recursive: true });
+    }
+
+    const folderPath = path.join(draftsDir, folderName);
+    fs.mkdirSync(folderPath, { recursive: true });
+
+    const draftFrontMatter = {
+      id: draftId,
+      title: idea.title || '无标题',
+      description: idea.content || '',
+      status: 'draft',
+      priority: 'medium',
+      source: '灵感集',
+      product_line: [],
+      tags: idea.tags || [],
+      created_at: today,
+      updated_at: today,
+      published_ids: []
+    };
+
+    const yamlStr = yaml.dump(draftFrontMatter, { lineWidth: -1, quotingType: '"', forceQuotes: true });
+    const body = `# ${idea.title || '无标题'}\n\n${idea.content || ''}`;
+    const draftContent = `---\n${yamlStr}---\n${body}`;
+
+    fs.writeFileSync(path.join(folderPath, 'draft.md'), draftContent, 'utf-8');
+
+    // 更新灵感的 converted_to 字段
+    const ideaContent = fs.readFileSync(idea.bodyPath, 'utf-8');
+    const ideaMatch = ideaContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    if (ideaMatch) {
+      const ideaFM = yaml.load(ideaMatch[1], { schema: yaml.JSON_SCHEMA }) || {};
+      ideaFM.converted_to = draftId;
+      ideaFM.updated_at = today;
+      const newIdeaContent = `---\n${yaml.dump(ideaFM)}---\n${ideaMatch[2]}`;
+      fs.writeFileSync(idea.bodyPath, newIdeaContent, 'utf-8');
+    }
+
+    res.json({ success: true, draftId });
+  } catch (err) {
+    console.error('灵感转草稿失败:', err);
+    res.status(500).json({ error: '转换失败: ' + err.message });
+  }
+});
+
+// ============================================================================
+// API：灵感转需求（直接发布）
+// ============================================================================
+app.post('/api/ideas/:id/convert-to-requirement', (req, res) => {
+  try {
+    const { product_line = [] } = req.body;
+    const ideas = scanIdeas();
+    const idea = ideas.find(i => i.id === req.params.id);
+
+    if (!idea) {
+      return res.status(404).json({ error: '灵感不存在' });
+    }
+
+    const targetProductLines = Array.isArray(product_line) && product_line.length > 0
+      ? product_line
+      : ['未分类'];
+
+    const settings = getSettings();
+    const today = new Date().toISOString().split('T')[0];
+    const results = [];
+
+    for (const pl of targetProductLines) {
+      const id = getNextReqId();
+      const slug = generateSlug(idea.title || '无标题');
+      const folderName = `${id}-${slug}`;
+
+      // 确保产品线目录存在
+      const plDir = ensureProductLineDir(pl, 'products');
+
+      const reqDir = path.join(plDir, folderName);
+      if (fs.existsSync(reqDir)) {
+        continue;
+      }
+      fs.mkdirSync(reqDir, { recursive: true });
+
+      // 构建 YAML front matter
+      const frontMatter = buildFrontMatterWithProductLines({
+        id,
+        title: idea.title || '无标题',
+        status: settings.statusList[0] || '设计中',
+        priority: 'P2',
+        platform: ['web'],
+        product_line: [pl],
+        sprint: '',
+        developer: '',
+        requester: '',
+        created: today,
+        updated: today,
+        due_date: '',
+        tags: idea.tags || [],
+        idea_id: idea.id
+      });
+
+      const description = idea.content || '';
+      const body = `## 需求描述\n\n${description}\n\n## 验收标准\n\n- [ ] 标准1\n\n## 备注\n`;
+      const reqContent = `---\n${yaml.dump(frontMatter)}---\n${body}`;
+
+      const reqFile = path.join(reqDir, 'requirement.md');
+      fs.writeFileSync(reqFile, reqContent, 'utf-8');
+
+      results.push({ id, product_line: pl, path: folderName });
+    }
+
+    // 更新灵感的 converted_to 字段
+    const ideaContent = fs.readFileSync(idea.bodyPath, 'utf-8');
+    const ideaMatch = ideaContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    if (ideaMatch) {
+      const ideaFM = yaml.load(ideaMatch[1], { schema: yaml.JSON_SCHEMA }) || {};
+      ideaFM.converted_to = results.map(r => r.id).join(', ');
+      ideaFM.updated_at = new Date().toISOString();
+      const newIdeaContent = `---\n${yaml.dump(ideaFM)}---\n${ideaMatch[2]}`;
+      fs.writeFileSync(idea.bodyPath, newIdeaContent, 'utf-8');
+    }
+
+    const firstResult = results[0];
+    res.json({
+      success: true,
+      requirements: results,
+      requirementId: firstResult ? firstResult.id : null
+    });
+  } catch (err) {
+    console.error('灵感转需求失败:', err);
+    res.status(500).json({ error: '转换失败: ' + err.message });
   }
 });
 
@@ -1989,6 +2375,11 @@ app.post('/api/settings', (req, res) => {
 app.get('/', (req, res) => {
   res.sendFile(path.join(WORKSPACE, 'public', 'index.html'));
 });
+
+// ============================================================================
+// [ARCHIVED] TAPD OAuth & API 路由
+// 已归档至 archive/tapd/，如需恢复请查看 archive/tapd/README.md
+// ============================================================================
 
 // ============================================================================
 // 启动服务器

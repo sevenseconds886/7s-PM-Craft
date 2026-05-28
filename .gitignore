@@ -40,9 +40,15 @@ Thumbs.db
 # Drafts (local data, not tracked)
 drafts/
 
+# Ideas (local data, not tracked)
+ideas/
+
 # Local data (products/archive contain user requirement data)
 products/
 archive/
+
+# TAPD config (local auth)
+.tapd.json
 
 # Project docs (local copies)
 PM-Craft-全量需求文档-*.md

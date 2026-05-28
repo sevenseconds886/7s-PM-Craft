@@ -1,5 +1,5 @@
 // 全局状态
-let currentData = { requirements: [], sprints: [], drafts: [] };
+let currentData = { requirements: [], sprints: [], drafts: [], ideas: [] };
 let settings = { statusList: [], priorityList: [] };
 let currentProductLine = '';
 let cachedStats = { physicalProductLines: [], productLineCounts: {} };
@@ -269,6 +269,7 @@ document.addEventListener('click', (e) => {
   if (action === 'showListPage') { showListPage(); return; }
   if (action === 'showSprintView') { showSprintView(); return; }
   if (action === 'showDraftsPage') { showDraftsPage(); return; }
+  if (action === 'showIdeasPage') { showIdeasPage(); return; }
   if (action === 'showArchivePage') { showArchivePage(); return; }
 
   // 弹窗
@@ -280,10 +281,24 @@ document.addEventListener('click', (e) => {
   if (action === 'closeCreateSprintModal') { closeCreateSprintModal(); return; }
   if (action === 'showDraftModal') { showDraftModal(); return; }
   if (action === 'closeDraftModal') { closeDraftModal(); return; }
+  if (action === 'showIdeaModal') { showIdeaModal(); return; }
+  if (action === 'closeIdeaModal') { closeIdeaModal(); return; }
+  if (action === 'saveIdea') { saveIdea(); return; }
+  if (action === 'closeIdeaConvertModal') { closeIdeaConvertModal(); return; }
+  if (action === 'closeIdeaViewModal') { closeIdeaViewModal(); return; }
+  if (action === 'confirmIdeaConvert') { confirmIdeaConvert(); return; }
   if (action === 'showVersionHistory') { showVersionHistory(); return; }
   if (action === 'closeVersionHistory') { closeVersionHistory(); return; }
   if (action === 'closePublishModal') { closePublishModal(); return; }
   if (action === 'closeDraftPreviewModal') { closeDraftPreviewModal(); return; }
+  // [ARCHIVED] TAPD 事件 —— 已归档至 archive/tapd/
+  // if (action === 'publishToTapd') { showTapdPublishModal(); return; }
+  // if (action === 'closeTapdModal') { closeTapdModal(); return; }
+  // if (action === 'startTapdAuth') { startTapdAuth(); return; }
+  // if (action === 'confirmTapdPublish') { confirmTapdPublish(); return; }
+  // if (action === 'saveTapdSettings') { saveTapdSettings(); return; }
+  // if (action === 'saveTapdTokenSettings') { saveTapdTokenSettings(); return; }
+  // if (action === 'switchTapdAuthTab') { switchTapdAuthTab(el.dataset.tab); return; }
 
   // 操作
   if (action === 'refreshData') { refreshData(); return; }
@@ -324,6 +339,7 @@ document.addEventListener('input', (e) => {
   if (!action) return;
   if (action === 'applyFilters') { applyFilters(); return; }
   if (action === 'renderDraftsList') { renderDraftsList(); return; }
+  if (action === 'renderIdeas') { renderIdeas(); return; }
 });
 
 // keydown 事件委托（Enter 触发）
@@ -481,19 +497,22 @@ async function loadSettings() {
 // 刷新数据
 async function refreshData() {
   try {
-    const [reqRes, sprintRes, draftRes] = await Promise.all([
+    const [reqRes, sprintRes, draftRes, ideaRes] = await Promise.all([
       fetch('/api/requirements'),
       fetch('/api/sprints'),
-      fetch('/api/drafts')
+      fetch('/api/drafts'),
+      fetch('/api/ideas')
     ]);
 
     const reqData = await reqRes.json();
     const sprintData = await sprintRes.json();
     const draftData = await draftRes.json();
+    const ideaData = await ideaRes.json();
 
     currentData.requirements = reqData.requirements;
     currentData.sprints = sprintData.sprints || [];
     currentData.drafts = draftData.drafts || [];
+    currentData.ideas = ideaData.ideas || [];
 
     if (!document.getElementById('home-page').classList.contains('hidden')) {
       renderHome();
@@ -506,6 +525,8 @@ async function refreshData() {
       renderSprintView();
     } else if (!document.getElementById('drafts-page').classList.contains('hidden')) {
       renderDraftsList();
+    } else if (!document.getElementById('ideas-page').classList.contains('hidden')) {
+      renderIdeas();
     }
   } catch (e) {
     console.error('刷新数据失败:', e);
@@ -614,6 +635,12 @@ function renderHome() {
   if (draftsEntry) {
     const draftsCount = currentData.drafts.filter(d => d.status !== 'published').length;
     draftsEntry.querySelector('.drafts-count').textContent = draftsCount;
+  }
+
+  // 更新灵感集入口计数
+  const ideasEntry = document.getElementById('ideas-entry');
+  if (ideasEntry) {
+    ideasEntry.querySelector('.ideas-count').textContent = currentData.ideas.length;
   }
 
   // ===== 产品线卡片：只显示有物理文件夹的产品线 =====
@@ -1658,6 +1685,141 @@ function closeVersionHistory() {
   document.getElementById('version-history-modal').classList.add('hidden');
 }
 
+// ============================================================================
+// [ARCHIVED] TAPD 发布功能 —— 已归档至 archive/tapd/
+// ============================================================================
+/*
+let tapdIterations = [];
+let currentTapdReqId = null;
+
+async function showTapdPublishModal() {
+  const modal = document.getElementById('tapd-publish-modal');
+  const authSection = document.getElementById('tapd-auth-section');
+  const publishSection = document.getElementById('tapd-publish-section');
+  const loadingSection = document.getElementById('tapd-loading-section');
+  const resultSection = document.getElementById('tapd-result-section');
+
+  // 重置状态
+  authSection.classList.add('hidden');
+  publishSection.classList.add('hidden');
+  loadingSection.classList.add('hidden');
+  resultSection.classList.add('hidden');
+
+  currentTapdReqId = currentReqId;
+
+  // 检查 TAPD 授权状态
+  try {
+    const res = await fetch('/api/tapd/status');
+    const status = await res.json();
+
+    if (!status.authorized) {
+      authSection.classList.remove('hidden');
+    } else {
+      publishSection.classList.remove('hidden');
+      document.getElementById('tapd-req-title').textContent = currentReqTitle || currentReqId;
+      await loadTapdIterations();
+    }
+  } catch (err) {
+    console.error('Check TAPD status error:', err);
+    authSection.classList.remove('hidden');
+  }
+
+  modal.classList.remove('hidden');
+}
+
+function closeTapdModal() {
+  document.getElementById('tapd-publish-modal').classList.add('hidden');
+  currentTapdReqId = null;
+}
+
+async function startTapdAuth() {
+  try {
+    const res = await fetch('/api/tapd/auth-url');
+    const data = await res.json();
+
+    if (data.error) {
+      alert('TAPD 未配置：' + data.error);
+      return;
+    }
+
+    // 打开授权窗口
+    const authWindow = window.open(data.authUrl, 'tapd-auth', 'width=600,height=600');
+
+    // 轮询检查授权是否完成
+    const checkInterval = setInterval(async () => {
+      if (authWindow.closed) {
+        clearInterval(checkInterval);
+        // 重新检查状态
+        const statusRes = await fetch('/api/tapd/status');
+        const status = await statusRes.json();
+        if (status.authorized) {
+          // 刷新弹窗状态
+          showTapdPublishModal();
+        }
+      }
+    }, 1000);
+  } catch (err) {
+    console.error('Start TAPD auth error:', err);
+    alert('启动 TAPD 授权失败');
+  }
+}
+
+async function loadTapdIterations() {
+  try {
+    const res = await fetch('/api/tapd/iterations');
+    const data = await res.json();
+    tapdIterations = data.iterations || [];
+
+    const select = document.getElementById('tapd-iteration-select');
+    select.innerHTML = '<option value="">请选择迭代...</option>' +
+      tapdIterations.map(it => `<option value="${it.id}">${it.name}</option>`).join('');
+  } catch (err) {
+    console.error('Load TAPD iterations error:', err);
+  }
+}
+
+async function confirmTapdPublish() {
+  const iterationId = document.getElementById('tapd-iteration-select').value;
+  if (!iterationId) {
+    alert('请选择目标迭代');
+    return;
+  }
+
+  const publishSection = document.getElementById('tapd-publish-section');
+  const loadingSection = document.getElementById('tapd-loading-section');
+  const resultSection = document.getElementById('tapd-result-section');
+
+  publishSection.classList.add('hidden');
+  loadingSection.classList.remove('hidden');
+
+  try {
+    const res = await fetch(`/api/tapd/publish/${currentTapdReqId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ iterationId })
+    });
+
+    const data = await res.json();
+
+    loadingSection.classList.add('hidden');
+
+    if (data.success) {
+      resultSection.classList.remove('hidden');
+      document.getElementById('tapd-result-link').href = data.url;
+      showToast('需求已发布到 TAPD');
+    } else {
+      alert('发布失败：' + (data.error || '未知错误'));
+      publishSection.classList.remove('hidden');
+    }
+  } catch (err) {
+    console.error('Publish to TAPD error:', err);
+    alert('发布失败：' + err.message);
+    loadingSection.classList.add('hidden');
+    publishSection.classList.remove('hidden');
+  }
+}
+*/
+
 // 离开页面时检查未保存内容
 window.addEventListener('beforeunload', (e) => {
   if (docIsDirty) {
@@ -1888,6 +2050,9 @@ function showListPage() {
     case 'drafts':
       showDraftsPage();
       break;
+    case 'ideas':
+      showIdeasPage();
+      break;
     case 'home':
       showHome();
       break;
@@ -1904,6 +2069,7 @@ function hideAllPages() {
   document.getElementById('archive-page').classList.add('hidden');
   document.getElementById('sprint-page').classList.add('hidden');
   document.getElementById('drafts-page').classList.add('hidden');
+  document.getElementById('ideas-page').classList.add('hidden');
   document.getElementById('draft-detail-page').classList.add('hidden');
 }
 
@@ -2163,7 +2329,118 @@ function renderSettings() {
       </button>
     </div>
   `).join('');
+
+  // [ARCHIVED] TAPD 设置区域 —— 已归档至 archive/tapd/
+  // renderTapdSettings();
 }
+
+/*
+// 切换 TAPD 认证方式标签页
+function switchTapdAuthTab(tab) {
+  document.getElementById('tapd-token-form').classList.toggle('hidden', tab !== 'token');
+  document.getElementById('tapd-oauth-form').classList.toggle('hidden', tab !== 'oauth');
+  document.getElementById('tapd-tab-token').classList.toggle('bg-white', tab === 'token');
+  document.getElementById('tapd-tab-token').classList.toggle('text-ink-800', tab === 'token');
+  document.getElementById('tapd-tab-oauth').classList.toggle('bg-white', tab === 'oauth');
+  document.getElementById('tapd-tab-oauth').classList.toggle('text-ink-800', tab === 'oauth');
+}
+
+// 保存 API Token 配置
+async function saveTapdTokenSettings() {
+  const apiToken = document.getElementById('tapd-api-token').value.trim();
+  const workspaceId = document.getElementById('tapd-workspace-id-token').value.trim();
+
+  if (!apiToken || !workspaceId) {
+    alert('请填写 API Token 和工作区 ID');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/tapd/config-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiToken, workspaceId })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast('TAPD API Token 配置已保存');
+      renderTapdSettings();
+    } else {
+      alert(data.error || '保存失败');
+    }
+  } catch (err) {
+    alert('保存失败');
+  }
+}
+
+// 渲染 TAPD 设置区域
+async function renderTapdSettings() {
+  const authorizedSection = document.getElementById('tapd-settings-authorized');
+  const authMethodLabel = document.getElementById('tapd-auth-method-label');
+
+  if (!authorizedSection) return;
+
+  try {
+    const res = await fetch('/api/tapd/status');
+    const status = await res.json();
+
+    if (status.authorized) {
+      authorizedSection.classList.remove('hidden');
+      if (authMethodLabel) {
+        authMethodLabel.textContent = status.authMethod === 'api_token' ? 'API Token' : 'OAuth';
+      }
+    } else {
+      authorizedSection.classList.add('hidden');
+    }
+
+    // 默认显示 API Token 标签页
+    switchTapdAuthTab('token');
+
+    // 填充现有配置值到表单（如果存在）
+    const workspaceId = status.workspaceId || '';
+    const tokenInput = document.getElementById('tapd-workspace-id-token');
+    const oauthInput = document.getElementById('tapd-workspace-id-oauth');
+    if (tokenInput && workspaceId) tokenInput.value = workspaceId;
+    if (oauthInput && workspaceId) oauthInput.value = workspaceId;
+  } catch (err) {
+    console.error('Render TAPD settings error:', err);
+    authorizedSection.classList.add('hidden');
+    switchTapdAuthTab('token');
+  }
+}
+
+// 保存 TAPD 设置
+async function saveTapdSettings() {
+  const clientId = document.getElementById('tapd-client-id').value.trim();
+  const clientSecret = document.getElementById('tapd-client-secret').value.trim();
+  const workspaceId = document.getElementById('tapd-workspace-id-oauth').value.trim();
+
+  if (!clientId || !clientSecret || !workspaceId) {
+    alert('请填写完整的 TAPD 配置信息');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/tapd/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId, clientSecret, workspaceId })
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      showToast('TAPD 配置已保存');
+      renderTapdSettings();
+    } else {
+      alert('保存失败：' + (data.error || '未知错误'));
+    }
+  } catch (err) {
+    console.error('Save TAPD settings error:', err);
+    alert('保存失败');
+  }
+}
+*/
 
 // 从设置中添加产品线
 // ========== 状态编辑 ==========
@@ -2522,6 +2799,18 @@ async function removePriorityFromSettings(idx) {
 // 点击弹窗背景关闭
 document.getElementById('settings-modal').addEventListener('click', function(e) {
   if (e.target === this) closeSettings();
+});
+
+document.getElementById('idea-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeIdeaModal();
+});
+
+document.getElementById('idea-convert-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeIdeaConvertModal();
+});
+
+document.getElementById('idea-view-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeIdeaViewModal();
 });
 
 // 格式化日期
@@ -3740,3 +4029,585 @@ function createDraft() {
 // - publishDraft -> openPublishModal / confirmPublish
 // - archiveDraft -> updateDraftStatus
 // - confirmDeleteDraft -> deleteDraft (新实现)
+
+// ============================================================================
+// 灵感集功能
+// ============================================================================
+
+let currentEditingIdeaId = null;
+let currentConvertingIdeaId = null;
+let currentConvertingIdeaMode = null;
+
+// 显示灵感集页面
+function showIdeasPage() {
+  previousPage = 'ideas';
+  hideAllPages();
+  document.getElementById('ideas-page').classList.remove('hidden');
+  renderIdeas();
+}
+
+// 渲染灵感卡片墙
+function renderIdeas() {
+  const grid = document.getElementById('ideas-grid');
+  const empty = document.getElementById('ideas-empty');
+  const countEl = document.getElementById('ideas-total-count');
+  const searchVal = (document.getElementById('idea-search')?.value || '').toLowerCase();
+
+  let ideas = currentData.ideas || [];
+
+  // 搜索过滤
+  if (searchVal) {
+    ideas = ideas.filter(i =>
+      (i.title || '').toLowerCase().includes(searchVal) ||
+      (i.tags || []).some(t => t.toLowerCase().includes(searchVal))
+    );
+  }
+
+  // 更新计数
+  if (countEl) countEl.textContent = ideas.length;
+  if (ideasEntryCount) ideasEntryCount.textContent = (currentData.ideas || []).length;
+
+  if (ideas.length === 0) {
+    grid.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+
+  empty.classList.add('hidden');
+
+  // 按创建时间倒序
+  ideas.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+  grid.innerHTML = ideas.map(idea => {
+    const tagsHtml = (idea.tags || []).map(tag =>
+      `<span class="px-2 py-0.5 bg-rust-50 text-rust-600 text-xs rounded-full">${escapeHtml(tag)}</span>`
+    ).join('');
+
+    const dateStr = idea.created_at ? new Date(idea.created_at).toLocaleDateString('zh-CN') : '';
+    const convertedBadge = idea.converted_to
+      ? `<span class="px-2 py-0.5 bg-sage-50 text-sage-600 text-xs rounded-full">已转化</span>`
+      : '';
+
+    return `
+      <div class="bg-white rounded-xl border border-ink-100 p-5 hover:shadow-md transition-shadow cursor-pointer" onclick="showIdeaModal('${idea.id}')">
+        <div class="flex justify-between items-start mb-3">
+          <h3 class="font-medium text-ink-800 text-base line-clamp-2 flex-1">${escapeHtml(idea.title)}</h3>
+          ${convertedBadge}
+        </div>
+        <p class="text-sm text-ink-500 line-clamp-3 mb-4">${escapeHtml(idea.content || '').substring(0, 120)}${(idea.content || '').length > 120 ? '...' : ''}</p>
+        <div class="flex items-center justify-between">
+          <div class="flex flex-wrap gap-1.5">${tagsHtml}</div>
+          <span class="text-xs text-ink-400">${dateStr}</span>
+        </div>
+        <div class="flex gap-2 mt-4 pt-3 border-t border-ink-50">
+          <button onclick="event.stopPropagation(); showIdeaModal('${idea.id}')" class="px-3 py-1.5 text-xs text-ink-600 hover:text-ink-800 hover:bg-ink-50 rounded-lg transition-colors">编辑</button>
+          ${!idea.converted_to ? `
+            <button onclick="event.stopPropagation(); showIdeaConvertModal('${idea.id}', 'draft')" class="px-3 py-1.5 text-xs text-sage-600 hover:text-sage-800 hover:bg-sage-50 rounded-lg transition-colors">转草稿</button>
+            <button onclick="event.stopPropagation(); showIdeaConvertModal('${idea.id}', 'requirement')" class="px-3 py-1.5 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors">转需求</button>
+          ` : ''}
+          <button onclick="event.stopPropagation(); deleteIdea('${idea.id}')" class="px-3 py-1.5 text-xs text-rust-500 hover:text-rust-700 hover:bg-rust-50 rounded-lg transition-colors ml-auto">删除</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// 显示灵感弹窗（新建/编辑）
+function showIdeaModal(ideaId = null) {
+  const modal = document.getElementById('idea-modal');
+  const titleEl = document.getElementById('idea-modal-title');
+  const idInput = document.getElementById('idea-id');
+  const titleInput = document.getElementById('idea-title-input');
+  const contentInput = document.getElementById('idea-content-input');
+  const tagsInput = document.getElementById('idea-tags-input');
+
+  currentEditingIdeaId = ideaId;
+
+  if (ideaId) {
+    const idea = (currentData.ideas || []).find(i => i.id === ideaId);
+    if (!idea) return;
+    titleEl.textContent = '编辑灵感';
+    idInput.value = idea.id;
+    titleInput.value = idea.title || '';
+    contentInput.value = idea.content || '';
+    tagsInput.value = (idea.tags || []).join(', ');
+  } else {
+    titleEl.textContent = '新建灵感';
+    idInput.value = '';
+    titleInput.value = '';
+    contentInput.value = '';
+    tagsInput.value = '';
+  }
+
+  modal.classList.remove('hidden');
+}
+
+// 关闭灵感弹窗
+function closeIdeaModal() {
+  document.getElementById('idea-modal').classList.add('hidden');
+  currentEditingIdeaId = null;
+}
+
+// 保存灵感
+async function saveIdea() {
+  const idInput = document.getElementById('idea-id').value;
+  const title = document.getElementById('idea-title-input').value.trim();
+  const content = document.getElementById('idea-content-input').value.trim();
+  const tagsStr = document.getElementById('idea-tags-input').value.trim();
+
+  if (!title) {
+    showToast('请输入标题', 'error');
+    return;
+  }
+
+  const tags = tagsStr.split(/[,，]/).map(t => t.trim()).filter(Boolean);
+  const isEdit = !!idInput;
+
+  try {
+    const url = isEdit ? `/api/ideas/${idInput}` : '/api/ideas';
+    const method = isEdit ? 'PUT' : 'POST';
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, content, tags })
+    });
+
+    if (!res.ok) throw new Error();
+
+    closeIdeaModal();
+    await refreshData();
+    renderIdeas();
+    showToast(isEdit ? '灵感已更新' : '灵感已创建');
+  } catch (e) {
+    showToast('保存失败', 'error');
+  }
+}
+
+// 删除灵感
+async function deleteIdea(ideaId) {
+  if (!confirm('确定要删除此灵感吗？')) return;
+
+  try {
+    const res = await fetch(`/api/ideas/${ideaId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error();
+
+    await refreshData();
+    renderIdeas();
+    showToast('灵感已删除');
+  } catch (e) {
+    showToast('删除失败', 'error');
+  }
+}
+
+// 显示转化弹窗
+function showIdeaConvertModal(ideaId, mode) {
+  const idea = (currentData.ideas || []).find(i => i.id === ideaId);
+  if (!idea) return;
+
+  currentConvertingIdeaId = ideaId;
+  currentConvertingIdeaMode = mode;
+
+  const modal = document.getElementById('idea-convert-modal');
+  const titleEl = document.getElementById('idea-convert-modal-title');
+  const titleDisplay = document.getElementById('convert-idea-title');
+  const descDisplay = document.getElementById('convert-idea-desc');
+  const plSection = document.getElementById('convert-idea-product-line-section');
+  const plContainer = document.getElementById('convert-idea-product-lines');
+
+  titleEl.textContent = mode === 'draft' ? '转化为草稿' : '转化为需求';
+  titleDisplay.textContent = idea.title;
+  descDisplay.textContent = idea.content || '';
+  document.getElementById('convert-idea-id').value = ideaId;
+  document.getElementById('convert-idea-mode').value = mode;
+
+  // 产品线选择（只有转需求时需要）
+  if (mode === 'requirement') {
+    plSection.classList.remove('hidden');
+    const productLines = getAllProductLines();
+    plContainer.innerHTML = productLines.map(pl => `
+      <label class="flex items-center gap-2 px-3 py-2 bg-ink-50 rounded-lg cursor-pointer hover:bg-ink-100 transition-colors">
+        <input type="checkbox" name="convert-idea-pl" value="${escapeHtml(pl)}" class="w-4 h-4 text-sage-500 rounded border-ink-300 focus:ring-sage-500">
+        <span class="text-sm text-ink-700">${escapeHtml(pl)}</span>
+      </label>
+    `).join('');
+  } else {
+    plSection.classList.add('hidden');
+  }
+
+  modal.classList.remove('hidden');
+}
+
+// 关闭转化弹窗
+function closeIdeaConvertModal() {
+  document.getElementById('idea-convert-modal').classList.add('hidden');
+  currentConvertingIdeaId = null;
+  currentConvertingIdeaMode = null;
+}
+
+// 确认转化
+async function confirmIdeaConvert() {
+  const ideaId = currentConvertingIdeaId;
+  const mode = currentConvertingIdeaMode;
+  if (!ideaId || !mode) return;
+
+  let product_line = [];
+  if (mode === 'requirement') {
+    const checked = document.querySelectorAll('input[name="convert-idea-pl"]:checked');
+    product_line = Array.from(checked).map(c => c.value);
+  }
+
+  try {
+    const endpoint = mode === 'draft' ? `/api/ideas/${ideaId}/convert-to-draft` : `/api/ideas/${ideaId}/convert-to-requirement`;
+    const body = mode === 'requirement' ? JSON.stringify({ product_line }) : undefined;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body
+    });
+
+    if (!res.ok) throw new Error();
+
+    const data = await res.json();
+    closeIdeaConvertModal();
+    await refreshData();
+    renderIdeas();
+
+    const target = mode === 'draft' ? '草稿' : '需求';
+    const targetId = data.draftId || data.requirementId || '';
+    showToast(`已转化为${target} ${targetId}`);
+  } catch (e) {
+    showToast('转化失败', 'error');
+  }
+}
+
+// ========== 灵感集 ==========
+
+let editingIdea = null;
+
+// 显示灵感集页面
+function showIdeasPage() {
+  previousPage = 'ideas';
+  hideAllPages();
+  document.getElementById('ideas-page').classList.remove('hidden');
+  renderIdeas();
+}
+
+// 渲染灵感卡片墙
+function renderIdeas() {
+  const grid = document.getElementById('ideas-grid');
+  const empty = document.getElementById('ideas-empty');
+  const totalEl = document.getElementById('ideas-total-count');
+  const searchQuery = document.getElementById('idea-search')?.value.toLowerCase() || '';
+
+  let ideas = [...currentData.ideas];
+
+  if (searchQuery) {
+    ideas = ideas.filter(i =>
+      (i.title || '').toLowerCase().includes(searchQuery) ||
+      (i.content || '').toLowerCase().includes(searchQuery) ||
+      (i.tags || []).some(t => t.toLowerCase().includes(searchQuery))
+    );
+  }
+
+  totalEl.textContent = ideas.length;
+
+  if (ideas.length === 0) {
+    grid.classList.add('hidden');
+    empty.classList.remove('hidden');
+    return;
+  }
+
+  grid.classList.remove('hidden');
+  empty.classList.add('hidden');
+
+  // 陶土色系标签配色
+  const tagColors = [
+    { bg: '#f5e6d8', text: '#8c5f3a', border: '#e8cdb3' },
+    { bg: '#e3e7dd', text: '#4e6145', border: '#c8d1bd' },
+    { bg: '#f5ddd4', text: '#8c4232', border: '#eab9a8' },
+    { bg: '#dbeafe', text: '#1e40af', border: '#93c5fd' },
+    { bg: '#fef3c7', text: '#92400e', border: '#fcd34d' },
+    { bg: '#e0e7ff', text: '#3730a3', border: '#a5b4fc' },
+    { bg: '#fce7f3', text: '#9d174d', border: '#f9a8d4' },
+    { bg: '#d1fae5', text: '#065f46', border: '#6ee7b7' },
+  ];
+
+  grid.innerHTML = ideas.map(idea => {
+    const created = idea.created_at ? new Date(idea.created_at).toLocaleDateString('zh-CN') : '-';
+    const isConverted = idea.converted_to != null;
+    const tags = idea.tags || [];
+    const visibleTags = tags.slice(0, 2);
+    const hiddenTagCount = tags.length - visibleTags.length;
+
+    const tagsHtml = visibleTags.map((tag, idx) => {
+      const color = tagColors[idx % tagColors.length];
+      return `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium" style="background:${color.bg};color:${color.text};border:1px solid ${color.border}">${escapeHtml(tag)}</span>`;
+    }).join('');
+    const moreTagsHtml = hiddenTagCount > 0 ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-ink-100 text-ink-500">+${hiddenTagCount}</span>` : '';
+
+    return `
+      <div onclick="showIdeaViewModal('${escapeHtml(idea.id)}')" class="bg-white rounded-xl border border-ink-100 p-3.5 hover:shadow-md hover:border-ink-200 transition-all cursor-pointer group relative flex flex-col h-[168px]">
+        ${isConverted ? '<div class="absolute top-2.5 right-2.5 px-1.5 py-0.5 bg-sage-100 text-sage-700 text-[10px] font-medium rounded">已转化</div>' : ''}
+        <h3 class="font-display text-sm font-bold text-ink-800 mb-1.5 leading-snug line-clamp-2 ${isConverted ? 'pr-12' : ''}">${escapeHtml(idea.title || '无标题')}</h3>
+        <p class="text-xs text-ink-500 line-clamp-3 mb-2 flex-1 leading-relaxed">${escapeHtml(idea.content || '')}</p>
+        <div class="flex flex-wrap gap-1 mt-auto">
+          ${tagsHtml}${moreTagsHtml}
+        </div>
+        <div class="flex items-center justify-between mt-2 pt-2 border-t border-ink-50">
+          <span class="text-[10px] text-ink-400">${created}</span>
+          <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onclick="event.stopPropagation(); showIdeaModal('${escapeHtml(idea.id)}')" class="p-1 rounded hover:bg-ink-100 text-ink-400 hover:text-ink-600" title="编辑">
+              <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M10.5 1.5l2 2-8 8H2.5v-2l8-8z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            </button>
+            ${!isConverted ? `
+            <button onclick="event.stopPropagation(); openIdeaConvertModal('${escapeHtml(idea.id)}', 'draft')" class="p-1 rounded hover:bg-clay-100 text-ink-400 hover:text-clay-600" title="转草稿">
+              <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M8 1v5h5M8 6a5 5 0 1 1-5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button onclick="event.stopPropagation(); openIdeaConvertModal('${escapeHtml(idea.id)}', 'requirement')" class="p-1 rounded hover:bg-sage-100 text-ink-400 hover:text-sage-600" title="转需求">
+              <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M12 7L2 2v10l10-5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            </button>
+            ` : ''}
+            <button onclick="event.stopPropagation(); deleteIdea('${escapeHtml(idea.id)}')" class="p-1 rounded hover:bg-rust-50 text-ink-400 hover:text-rust-500" title="删除">
+              <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M4.5 3.5V2a1 1 0 011-1h3a1 1 0 011 1v1.5M5.5 6v5M8.5 6v5M3 3.5l1 9h6l1-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// 显示灵感弹窗（新建/编辑）
+function showIdeaModal(ideaId = null) {
+  const modal = document.getElementById('idea-modal');
+  const titleEl = document.getElementById('idea-modal-title');
+
+  editingIdea = ideaId ? currentData.ideas.find(i => i.id === ideaId) : null;
+
+  if (editingIdea) {
+    titleEl.textContent = '编辑灵感';
+    document.getElementById('idea-id').value = editingIdea.id;
+    document.getElementById('idea-title-input').value = editingIdea.title || '';
+    document.getElementById('idea-content-input').value = editingIdea.content || '';
+    document.getElementById('idea-tags-input').value = (editingIdea.tags || []).join(', ');
+  } else {
+    titleEl.textContent = '新建灵感';
+    document.getElementById('idea-id').value = '';
+    document.getElementById('idea-title-input').value = '';
+    document.getElementById('idea-content-input').value = '';
+    document.getElementById('idea-tags-input').value = '';
+  }
+
+  modal.classList.remove('hidden');
+  setTimeout(() => document.getElementById('idea-title-input').focus(), 100);
+}
+
+function closeIdeaModal() {
+  document.getElementById('idea-modal').classList.add('hidden');
+  editingIdea = null;
+}
+
+// 保存灵感（新建/更新）
+async function saveIdea() {
+  const id = document.getElementById('idea-id').value;
+  const title = document.getElementById('idea-title-input').value.trim();
+  const content = document.getElementById('idea-content-input').value.trim();
+  const tags = document.getElementById('idea-tags-input').value.split(',').map(t => t.trim()).filter(Boolean);
+
+  if (!title) {
+    showToast('请输入标题', 'error');
+    return;
+  }
+
+  try {
+    if (id) {
+      const res = await fetch(`/api/ideas/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content, tags })
+      });
+      if (!res.ok) throw new Error();
+      showToast('灵感已更新');
+    } else {
+      const res = await fetch('/api/ideas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content, tags })
+      });
+      if (!res.ok) throw new Error();
+      showToast('灵感已创建');
+    }
+
+    closeIdeaModal();
+    await refreshData();
+    renderIdeas();
+  } catch (e) {
+    showToast('保存失败', 'error');
+  }
+}
+
+// 删除灵感
+async function deleteIdea(ideaId) {
+  if (!confirm('确定要删除此灵感吗？')) return;
+
+  try {
+    const res = await fetch(`/api/ideas/${ideaId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error();
+
+    await refreshData();
+    renderIdeas();
+    showToast('灵感已删除');
+  } catch (e) {
+    showToast('删除失败', 'error');
+  }
+}
+
+// 打开转化弹窗
+function openIdeaConvertModal(ideaId, mode) {
+  const idea = currentData.ideas.find(i => i.id === ideaId);
+  if (!idea) return;
+
+  document.getElementById('convert-idea-id').value = ideaId;
+  document.getElementById('convert-idea-mode').value = mode;
+  document.getElementById('convert-idea-title').textContent = idea.title || '无标题';
+  document.getElementById('convert-idea-desc').textContent = idea.content || '';
+
+  const modalTitle = document.getElementById('idea-convert-modal-title');
+  const plSection = document.getElementById('convert-idea-product-line-section');
+
+  if (mode === 'draft') {
+    modalTitle.textContent = '转草稿';
+    plSection.classList.add('hidden');
+  } else {
+    modalTitle.textContent = '转需求';
+    plSection.classList.remove('hidden');
+    const productLines = getAllProductLines();
+    const container = document.getElementById('convert-idea-product-lines');
+    container.innerHTML = productLines.map(pl => {
+      return `<label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-ink-50 rounded-lg cursor-pointer hover:bg-ink-100 text-sm">
+        <input type="checkbox" class="convert-idea-pl-cb w-4 h-4" value="${escapeHtml(pl)}">${escapeHtml(pl)}
+      </label>`;
+    }).join('') || '<span class="text-sm text-ink-400">暂无产品线</span>';
+  }
+
+  document.getElementById('idea-convert-modal').classList.remove('hidden');
+}
+
+function closeIdeaConvertModal() {
+  document.getElementById('idea-convert-modal').classList.add('hidden');
+}
+
+let viewingIdeaId = null;
+
+function showIdeaViewModal(ideaId) {
+  const idea = currentData.ideas.find(i => i.id === ideaId);
+  if (!idea) return;
+
+  viewingIdeaId = ideaId;
+
+  document.getElementById('view-idea-title').textContent = idea.title || '无标题';
+  document.getElementById('view-idea-content').textContent = idea.content || '';
+  document.getElementById('view-idea-id').textContent = idea.id;
+  document.getElementById('view-idea-date').textContent = idea.created_at
+    ? '创建于 ' + new Date(idea.created_at).toLocaleDateString('zh-CN')
+    : '';
+
+  // 标签
+  const tagColors = [
+    { bg: '#f5e6d8', text: '#8c5f3a', border: '#e8cdb3' },
+    { bg: '#e3e7dd', text: '#4e6145', border: '#c8d1bd' },
+    { bg: '#f5ddd4', text: '#8c4232', border: '#eab9a8' },
+    { bg: '#dbeafe', text: '#1e40af', border: '#93c5fd' },
+    { bg: '#fef3c7', text: '#92400e', border: '#fcd34d' },
+    { bg: '#e0e7ff', text: '#3730a3', border: '#a5b4fc' },
+    { bg: '#fce7f3', text: '#9d174d', border: '#f9a8d4' },
+    { bg: '#d1fae5', text: '#065f46', border: '#6ee7b7' },
+  ];
+  const tagsHtml = (idea.tags || []).map((tag, idx) => {
+    const color = tagColors[idx % tagColors.length];
+    return `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium" style="background:${color.bg};color:${color.text};border:1px solid ${color.border}">${escapeHtml(tag)}</span>`;
+  }).join('');
+  document.getElementById('view-idea-tags').innerHTML = tagsHtml;
+
+  // 按钮事件绑定
+  const isConverted = idea.converted_to != null;
+  const editBtn = document.getElementById('view-idea-edit-btn');
+  const draftBtn = document.getElementById('view-idea-draft-btn');
+  const reqBtn = document.getElementById('view-idea-req-btn');
+  const delBtn = document.getElementById('view-idea-delete-btn');
+
+  editBtn.onclick = () => { closeIdeaViewModal(); showIdeaModal(ideaId); };
+  draftBtn.onclick = () => { closeIdeaViewModal(); openIdeaConvertModal(ideaId, 'draft'); };
+  draftBtn.style.display = isConverted ? 'none' : '';
+  reqBtn.onclick = () => { closeIdeaViewModal(); openIdeaConvertModal(ideaId, 'requirement'); };
+  reqBtn.style.display = isConverted ? 'none' : '';
+  delBtn.onclick = () => { closeIdeaViewModal(); deleteIdea(ideaId); };
+
+  document.getElementById('idea-view-modal').classList.remove('hidden');
+}
+
+function closeIdeaViewModal() {
+  document.getElementById('idea-view-modal').classList.add('hidden');
+  viewingIdeaId = null;
+}
+
+// 确认转化
+async function confirmIdeaConvert() {
+  const ideaId = document.getElementById('convert-idea-id').value;
+  const mode = document.getElementById('convert-idea-mode').value;
+
+  if (mode === 'draft') {
+    await convertIdeaToDraft(ideaId);
+  } else {
+    await convertIdeaToRequirement(ideaId);
+  }
+}
+
+// 灵感转草稿
+async function convertIdeaToDraft(ideaId) {
+  try {
+    const res = await fetch(`/api/ideas/${ideaId}/convert-to-draft`, { method: 'POST' });
+    const data = await res.json();
+
+    if (res.ok) {
+      closeIdeaConvertModal();
+      await refreshData();
+      renderIdeas();
+      showToast(`已转为草稿 ${data.draftId}`);
+    } else {
+      showToast(data.error || '转化失败', 'error');
+    }
+  } catch (e) {
+    showToast('转化失败', 'error');
+  }
+}
+
+// 灵感转需求
+async function convertIdeaToRequirement(ideaId) {
+  const product_line = Array.from(document.querySelectorAll('#convert-idea-product-lines .convert-idea-pl-cb:checked')).map(cb => cb.value);
+
+  if (product_line.length === 0) {
+    showToast('请至少选择一个产品线', 'error');
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/ideas/${ideaId}/convert-to-requirement`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product_line })
+    });
+    const data = await res.json();
+
+    if (res.ok) {
+      closeIdeaConvertModal();
+      await refreshData();
+      renderIdeas();
+      showToast(`已发布为 ${data.requirements.map(r => r.id).join(', ')}`);
+    } else {
+      showToast(data.error || '转化失败', 'error');
+    }
+  } catch (e) {
+    showToast('转化失败', 'error');
+  }
+}
