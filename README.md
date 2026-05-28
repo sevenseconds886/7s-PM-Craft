@@ -90,6 +90,123 @@ npm start          # 启动服务
 
 **零配置原则**：所有数据保存在本地文件系统，不依赖外部数据库。
 
+### 后台运行（Windows）
+
+前台运行（`npm start`）时关闭终端会导致服务停止。推荐以下三种后台运行方式：
+
+#### 方式一：最小化窗口运行（最简单）
+
+适合临时使用，窗口最小化到任务栏，关闭窗口即停止服务。
+
+```bash
+# 进入项目目录
+cd D:\workbuddy-file
+
+# 最小化窗口启动
+start /min node server.js
+
+# 浏览器访问 http://localhost:3456
+```
+
+关闭方式：在任务栏找到 CMD 窗口，直接关闭即可。
+
+#### 方式二：无窗口后台运行（推荐日常开发）
+
+真正的后台进程，没有窗口，关闭终端也不影响。通过任务管理器结束进程。
+
+```powershell
+# 进入项目目录
+cd D:\workbuddy-file
+
+# PowerShell 启动隐藏窗口的后台进程
+Start-Process node -ArgumentList server.js -WindowStyle Hidden
+
+# 浏览器访问 http://localhost:3456
+```
+
+常用管理命令：
+
+```powershell
+# 查看是否在运行（查找 node.exe 进程）
+Get-Process node
+
+# 停止服务
+Stop-Process -Name node
+
+# 如果端口被占用，查找并结束占用 3456 端口的进程
+netstat -ano | findstr :3456
+taskkill /PID <进程ID> /F
+```
+
+**切换端口**（避免与其他服务冲突）：
+
+```powershell
+# 使用环境变量覆盖端口，例如改为 3300
+$env:PORT="3300"; Start-Process node -ArgumentList server.js -WindowStyle Hidden
+# 浏览器访问 http://localhost:3300
+```
+
+#### 方式三：pm2 进程守护（推荐长期运行）
+
+pm2 是 Node.js 专用的进程管理器，支持开机自启、日志管理、自动重启。
+
+```bash
+# 1. 安装 pm2（全局安装，只需一次）
+npm install -g pm2
+
+# 2. 进入项目目录
+cd D:\workbuddy-file
+
+# 3. 启动并命名进程
+pm2 start server.js --name pm-craft
+
+# 浏览器访问 http://localhost:3456
+```
+
+常用管理命令：
+
+```bash
+# 查看运行状态
+pm2 status
+
+# 查看实时日志
+pm2 logs pm-craft
+
+# 查看历史日志文件
+pm2 logs pm-craft --lines 100
+
+# 重启服务
+pm2 restart pm-craft
+
+# 停止服务（保留配置，可再次启动）
+pm2 stop pm-craft
+
+# 删除服务
+pm2 delete pm-craft
+
+# 设置开机自启（Windows）
+pm2 startup windows
+# 按照提示执行生成的命令，然后保存当前进程列表：
+pm2 save
+```
+
+**切换端口**（pm2 方式）：
+
+```bash
+# 启动时指定环境变量
+pm2 start server.js --name pm-craft --env PORT=3300
+# 或在 Windows PowerShell 中：
+$env:PORT="3300"; pm2 start server.js --name pm-craft
+```
+
+#### 三种方式对比
+
+| 方式 | 难度 | 关闭终端后 | 开机自启 | 日志管理 | 适用场景 |
+|------|------|-----------|---------|---------|---------|
+| `start /min` | 极简 | 停止 | 不支持 | 无 | 临时试用 |
+| `Start-Process Hidden` | 简单 | 继续运行 | 不支持 | 无 | 日常开发 |
+| `pm2` | 稍复杂 | 继续运行 | 支持 | 完整 | 长期运行/生产环境 |
+
 ### 换电脑迁移
 
 复制整个工作区文件夹到新电脑 → `npm start` → 所有数据自动加载。
