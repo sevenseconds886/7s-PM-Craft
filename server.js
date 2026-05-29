@@ -2384,6 +2384,22 @@ app.get('/', (req, res) => {
 // ============================================================================
 // 启动服务器
 // ============================================================================
+
+// 启动前初始化：确保必要目录存在
+function initWorkspace() {
+  // 确保 drafts/ 和 ideas/ 目录存在
+  const draftsDir = path.join(WORKSPACE, 'drafts');
+  const ideasDir = path.join(WORKSPACE, 'ideas');
+  if (!fs.existsSync(draftsDir)) fs.mkdirSync(draftsDir, { recursive: true });
+  if (!fs.existsSync(ideasDir)) fs.mkdirSync(ideasDir, { recursive: true });
+
+  // 默认「未分类」产品线常驻
+  ensureProductLineDir('未分类', 'products');
+  ensureProductLineDir('未分类', 'archive');
+}
+
+initWorkspace();
+
 app.listen(PORT, () => {
   console.log(`7s-PM-Craft 管家已启动`);
   console.log(`访问地址: http://localhost:${PORT}`);

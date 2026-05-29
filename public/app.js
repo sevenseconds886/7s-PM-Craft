@@ -660,13 +660,10 @@ function renderHome() {
     stat.statusCounts.set(req.status, (stat.statusCounts.get(req.status) || 0) + 1);
   }
 
-  // 只保留有物理文件夹的产品线 + 未分类兜底
-  // 从 plStats 中提取所有产品线，过滤出物理存在的（除了未分类）
-  const allPLsWithReqs = Array.from(plStats.keys());
-  let productLines = allPLsWithReqs.filter(pl => pl !== '未分类' && physicalPLs.includes(pl));
-
-  // 如果存在未分类需求，添加未分类卡片
-  const hasUncategorized = plStats.has('未分类');
+  // 有物理文件夹的产品线都展示（包括空的），按名称排序
+  // 「未分类」作为默认常驻卡片，始终置底
+  let productLines = physicalPLs.filter(pl => pl !== '未分类').sort();
+  const hasUncategorizedDir = physicalPLs.includes('未分类');
 
   // 搜索过滤
   if (productLineSearchQuery) {
@@ -694,8 +691,8 @@ function renderHome() {
     `;
   }).join('');
 
-  // 未分类卡片（灰色、置底）
-  if (hasUncategorized && (!productLineSearchQuery || '未分类'.toLowerCase().includes(productLineSearchQuery))) {
+  // 未分类卡片（灰色、置底、常驻）
+  if (hasUncategorizedDir && (!productLineSearchQuery || '未分类'.toLowerCase().includes(productLineSearchQuery))) {
     const uncategorizedStat = plStats.get('未分类') || { count: 0, statusCounts: new Map() };
     cardsHtml += `
       <div onclick="showList('未分类')" class="product-card bg-stone-50 rounded-2xl border border-stone-200 p-6 cursor-pointer hover:border-stone-300 transition-colors">
