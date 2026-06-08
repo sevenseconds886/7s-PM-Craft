@@ -1442,6 +1442,9 @@ function renderDetail() {
     childrenContent.innerHTML = '';
   }
 
+  // 右侧面板：附件
+  renderAssets(req.id);
+
   // 平台切换
   const platforms = req.platform || ['web'];
   const platformTabs = document.getElementById('platform-tabs');
@@ -1658,7 +1661,19 @@ function loadDoc(req) {
   const hasYaml = Object.keys(meta).length > 0;
 
   // 仅渲染 YAML 以下的内容
-  const mdHtml = marked.parse(body || '*暂无文档内容*');
+  // 自定义 marked 渲染器：将相对路径 assets/xxx 转换为绝对路径
+  const renderer = new marked.Renderer();
+  renderer.image = (href, title, text) => {
+    let src = href;
+    if (!src.startsWith('/') && !src.startsWith('http')) {
+      const basePath = `/products/${encodeURIComponent(req.mainProductLine || '未分类')}/${encodeURIComponent(req.folderName || '')}`;
+      src = src.replace(/^\.?\//, '');
+      src = `${basePath}/${src}`;
+    }
+    return `<img src="${escapeHtml(src)}" alt="${escapeHtml(text || '')}" class="max-w-full rounded-lg border border-stone-200 cursor-zoom-in my-2" onclick="openImageLightbox('${escapeHtml(src)}')" loading="lazy">`;
+  };
+
+  const mdHtml = marked.parse(body || '*暂无文档内容*', { renderer });
 
   // 后处理：表格加 class、外部链接新窗口
   const processedHtml = mdHtml
@@ -1687,6 +1702,70 @@ function loadDoc(req) {
   }
 }
 
+// 编辑器事件是否已绑定
+let editorEventsBound = false;
+
+// 编辑器粘贴上传处理
+function handleEditorPaste(e) {
+  const files = Array.from(e.clipboardData.files).filter(f => f.type.startsWith('image/'));
+  if (files.length === 0) return;
+  e.preventDefault();
+  uploadAssets(files);
+}
+
+// 编辑器拖拽上传处理
+function handleEditorDragOver(e) {
+  e.preventDefault();
+  const docEditor = document.getElementById('doc-editor');
+  docEditor.classList.add('doc-editor-dragover');
+}
+function handleEditorDragLeave(e) {
+  const docEditor = document.getElementById('doc-editor');
+  docEditor.classList.remove('doc-editor-dragover');
+}
+function handleEditorDrop(e) {
+  e.preventDefault();
+  const docEditor = document.getElementById('doc-editor');
+  docEditor.classList.remove('doc-editor-dragover');
+  const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+  uploadAssets(files);
+}
+
+// 批量上传附件到后端并在编辑器中插入引用
+async function uploadAssets(files) {
+  if (!currentReqId || files.length === 0) return;
+  const formData = new FormData();
+  files.forEach(file => formData.append('files', file));
+  try {
+    const res = await fetch(`/api/requirements/${currentReqId}/assets`, {
+      method: 'POST',
+      body: formData
+    });
+    const data = await res.json();
+    if (data.success && data.assets && data.assets.length > 0) {
+      const docEditor = document.getElementById('doc-editor');
+      let insertText = '';
+      data.assets.forEach(asset => {
+        insertText += `\n![${asset.filename}](assets/${asset.filename})\n`;
+      });
+      const start = docEditor.selectionStart || 0;
+      const end = docEditor.selectionEnd || 0;
+      const before = docEditor.value.substring(0, start);
+      const after = docEditor.value.substring(end);
+      docEditor.value = before + insertText + after;
+      docEditor.selectionStart = docEditor.selectionEnd = start + insertText.length;
+      docEditor.focus();
+      docIsDirty = true;
+      showToast(`已上传 ${data.assets.length} 张图片`, 'success');
+    } else {
+      showToast(data.error || '上传失败', 'error');
+    }
+  } catch (err) {
+    console.error('上传附件失败:', err);
+    showToast('上传失败', 'error');
+  }
+}
+
 // 切换文档编辑模式
 function toggleDocEditMode() {
   docEditMode = true;
@@ -1705,6 +1784,15 @@ function toggleDocEditMode() {
 
   // 监听内容变化，标记脏状态
   docEditor.addEventListener('input', () => { docIsDirty = true; }, { once: true });
+
+  // 绑定粘贴/拖拽上传事件（仅一次）
+  if (!editorEventsBound) {
+    docEditor.addEventListener('paste', handleEditorPaste);
+    docEditor.addEventListener('dragover', handleEditorDragOver);
+    docEditor.addEventListener('dragleave', handleEditorDragLeave);
+    docEditor.addEventListener('drop', handleEditorDrop);
+    editorEventsBound = true;
+  }
 
   // 聚焦到编辑器末尾
   docEditor.focus();
@@ -1895,6 +1983,91 @@ function deleteRequirement(reqId, childrenAction) {
     showToast('删除失败', 'error');
   });
 }
+
+// ============================================================================
+// 附件管理
+// ============================================================================
+
+async function renderAssets(reqId) {
+  const assetsSection = document.getElementById('detail-assets-section');
+  const assetsContent = document.getElementById('detail-assets-content');
+  if (!assetsSection || !assetsContent) return;
+
+  try {
+    const res = await fetch(`/api/requirements/${reqId}/assets`);
+    const data = await res.json();
+    const assets = data.assets || [];
+
+    if (assets.length > 0) {
+      assetsSection.classList.remove('hidden');
+      assetsContent.innerHTML = assets.map(asset => {
+        const isImage = asset.mimeType && asset.mimeType.startsWith('image/');
+        const icon = isImage ? '🖼️' : '📄';
+        const sizeStr = formatAssetSize(asset.size);
+        return `
+          <div class="asset-item group" data-testid="asset-item">
+            <span class="text-base">${icon}</span>
+            <a href="${escapeHtml(asset.url)}" target="_blank" rel="noopener" class="flex-1 text-sm text-stone-700 truncate hover:text-blue-600" title="${escapeHtml(asset.filename)}">
+              ${escapeHtml(asset.filename)}
+            </a>
+            <span class="text-xs text-stone-400 shrink-0">${sizeStr}</span>
+            <button onclick="deleteAsset('${escapeHtml(reqId)}', '${escapeHtml(asset.filename)}')" class="opacity-0 group-hover:opacity-100 text-xs text-stone-400 hover:text-red-500 transition-opacity ml-1" data-testid="asset-delete-btn">删除</button>
+          </div>
+        `;
+      }).join('');
+    } else {
+      assetsSection.classList.add('hidden');
+      assetsContent.innerHTML = '';
+    }
+  } catch (err) {
+    console.error('加载附件失败:', err);
+  }
+}
+
+function formatAssetSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+async function deleteAsset(reqId, filename) {
+  if (!confirm(`确定删除附件 "${filename}" 吗？`)) return;
+  try {
+    const res = await fetch(`/api/requirements/${reqId}/assets/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('附件已删除', 'success');
+      renderAssets(reqId);
+      // 如果当前在详情页，刷新文档渲染（可能包含该图片）
+      const req = currentData.requirements.find(r => r.id === reqId);
+      if (req) loadDoc(req);
+    } else {
+      showToast(data.error || '删除失败', 'error');
+    }
+  } catch (err) {
+    console.error('删除附件失败:', err);
+    showToast('删除失败', 'error');
+  }
+}
+
+// Lightbox 图片放大
+function openImageLightbox(src) {
+  const modal = document.getElementById('lightbox-modal');
+  const img = document.getElementById('lightbox-image');
+  if (!modal || !img) return;
+  img.src = src;
+  modal.classList.remove('hidden');
+}
+
+function closeImageLightbox() {
+  const modal = document.getElementById('lightbox-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+// Lightbox 键盘和点击关闭
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeImageLightbox();
+});
 
 function showPage(pageName) {
   if (pageName === 'list') {

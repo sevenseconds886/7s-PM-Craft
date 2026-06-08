@@ -1197,3 +1197,79 @@ test.describe.serial('API: Parent-Child Hierarchy', () => {
     expect(getBody.parent_id).toBeUndefined();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API 单元测试：需求附件管理
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe.serial('API: Asset Upload & Management', () => {
+  let apiContext;
+  const API_BASE = `http://localhost:${process.env.PORT || 3456}`;
+  let testReqId;
+  const uniqueSuffix = Date.now().toString(36);
+
+  test.beforeAll(async () => {
+    apiContext = await pwRequest.newContext({ baseURL: API_BASE });
+
+    // 创建测试需求
+    const resp = await apiContext.post('/api/requirements', {
+      data: { title: `附件测试需求-${uniqueSuffix}`, productLine: '产品线A', priority: 'P2', platform: ['web'] }
+    });
+    const body = await resp.json();
+    testReqId = body.id;
+  });
+
+  test.afterAll(async () => {
+    if (testReqId) {
+      await apiContext.delete(`/api/requirements/${testReqId}`).catch(() => {});
+    }
+    await apiContext.dispose();
+  });
+
+  test('POST /api/requirements/:id/assets 应能上传文件', async () => {
+    const buffer = Buffer.from('test image content');
+    const resp = await apiContext.post(`/api/requirements/${testReqId}/assets`, {
+      multipart: {
+        files: {
+          name: 'test-image.png',
+          mimeType: 'image/png',
+          buffer
+        }
+      }
+    });
+    expect(resp.status()).toBe(200);
+    const body = await resp.json();
+    expect(body.success).toBe(true);
+    expect(body.assets).toBeInstanceOf(Array);
+    expect(body.assets.length).toBe(1);
+    expect(body.assets[0].filename).toBe('test-image.png');
+    expect(body.assets[0].url).toContain('/assets/test-image.png');
+    expect(body.assets[0].size).toBe(18);
+  });
+
+  test('GET /api/requirements/:id/assets 应返回附件列表', async () => {
+    const resp = await apiContext.get(`/api/requirements/${testReqId}/assets`);
+    expect(resp.status()).toBe(200);
+    const body = await resp.json();
+    expect(body.success).toBe(true);
+    expect(body.assets).toBeInstanceOf(Array);
+    expect(body.assets.length).toBeGreaterThanOrEqual(1);
+    const asset = body.assets.find(a => a.filename === 'test-image.png');
+    expect(asset).toBeDefined();
+    expect(asset.mimeType).toBe('image/png');
+    expect(asset.size).toBe(18);
+  });
+
+  test('DELETE /api/requirements/:id/assets/:filename 应能删除附件', async () => {
+    const resp = await apiContext.delete(`/api/requirements/${testReqId}/assets/test-image.png`);
+    expect(resp.status()).toBe(200);
+    const body = await resp.json();
+    expect(body.success).toBe(true);
+
+    // 验证已删除
+    const listResp = await apiContext.get(`/api/requirements/${testReqId}/assets`);
+    const listBody = await listResp.json();
+    const asset = listBody.assets.find(a => a.filename === 'test-image.png');
+    expect(asset).toBeUndefined();
+  });
+});

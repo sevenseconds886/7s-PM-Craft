@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
 const { execSync } = require('child_process');
+const multer = require('multer');
 
 // 全局未捕获异常处理——记录完整堆栈后退出，防止数据损坏
 process.on('uncaughtException', (err) => {
@@ -200,6 +201,50 @@ function validateParentId(requirements, reqId, parentId) {
   }
 
   return { valid: true };
+}
+
+// ============================================================================
+// 工具函数：根据需求 ID 查找其目录路径（products 或 archive）
+// ============================================================================
+function findRequirementDir(reqId) {
+  const productsDir = path.join(WORKSPACE, 'products');
+  const archiveDir = path.join(WORKSPACE, 'archive');
+
+  for (const baseDir of [productsDir, archiveDir]) {
+    if (!fs.existsSync(baseDir)) continue;
+    const productLines = fs.readdirSync(baseDir, { withFileTypes: true })
+      .filter(d => d.isDirectory());
+    for (const pl of productLines) {
+      const plPath = path.join(baseDir, pl.name);
+      const entries = fs.readdirSync(plPath, { withFileTypes: true });
+      const reqDirs = entries.filter(d => d.isDirectory() && d.name.startsWith('REQ-'));
+      for (const reqDir of reqDirs) {
+        if (reqDir.name.startsWith(reqId + '-')) {
+          return path.join(plPath, reqDir.name);
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// ============================================================================
+// 工具函数：安全文件名处理
+// ============================================================================
+function sanitizeFilename(name) {
+  let safe = name
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/[\t\n\r]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return safe || 'unnamed';
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 // ============================================================================
@@ -2796,6 +2841,152 @@ function initWorkspace() {
 }
 
 initWorkspace();
+
+// ============================================================================
+// Multer 配置：需求附件上传
+// ============================================================================
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const reqDir = findRequirementDir(req.params.id);
+      if (!reqDir) {
+        return cb(new Error('需求不存在'));
+      }
+      const assetsDir = path.join(reqDir, 'assets');
+      if (!fs.existsSync(assetsDir)) {
+        fs.mkdirSync(assetsDir, { recursive: true });
+      }
+      cb(null, assetsDir);
+    },
+    filename: (req, file, cb) => {
+      const reqDir = findRequirementDir(req.params.id);
+      const assetsDir = reqDir ? path.join(reqDir, 'assets') : null;
+      let baseName = sanitizeFilename(file.originalname);
+      // 去掉扩展名
+      const extMatch = baseName.match(/(\.[a-zA-Z0-9]+)$/);
+      const ext = extMatch ? extMatch[1] : '';
+      const nameWithoutExt = ext ? baseName.slice(0, -ext.length) : baseName;
+      // 处理同名冲突
+      let finalName = baseName;
+      if (assetsDir && fs.existsSync(assetsDir)) {
+        let counter = 1;
+        while (fs.existsSync(path.join(assetsDir, finalName))) {
+          finalName = `${nameWithoutExt}-${counter}${ext}`;
+          counter++;
+        }
+      }
+      cb(null, finalName);
+    }
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB
+});
+
+// ============================================================================
+// API：上传需求附件
+// ============================================================================
+app.post('/api/requirements/:id/assets', upload.array('files', 20), (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: '未收到文件' });
+    }
+    const reqDir = findRequirementDir(req.params.id);
+    if (!reqDir) {
+      return res.status(404).json({ error: '需求不存在' });
+    }
+    const folderName = path.basename(reqDir);
+    const plName = path.basename(path.dirname(reqDir));
+    const assets = req.files.map(file => {
+      const url = `/products/${encodeURIComponent(plName)}/${encodeURIComponent(folderName)}/assets/${encodeURIComponent(file.filename)}`;
+      return {
+        filename: file.filename,
+        url,
+        size: file.size
+      };
+    });
+    res.json({
+      success: true,
+      assets
+    });
+  } catch (err) {
+    console.error('上传附件失败:', err);
+    res.status(500).json({ error: '上传失败: ' + err.message });
+  }
+});
+
+// ============================================================================
+// API：获取需求附件列表
+// ============================================================================
+app.get('/api/requirements/:id/assets', (req, res) => {
+  try {
+    const reqDir = findRequirementDir(req.params.id);
+    if (!reqDir) {
+      return res.status(404).json({ error: '需求不存在' });
+    }
+    const assetsDir = path.join(reqDir, 'assets');
+    if (!fs.existsSync(assetsDir)) {
+      return res.json({ success: true, assets: [] });
+    }
+    const folderName = path.basename(reqDir);
+    const plName = path.basename(path.dirname(reqDir));
+    const files = fs.readdirSync(assetsDir)
+      .filter(f => fs.statSync(path.join(assetsDir, f)).isFile())
+      .map(f => {
+        const stat = fs.statSync(path.join(assetsDir, f));
+        const mimeType = getMimeType(f);
+        return {
+          filename: f,
+          size: stat.size,
+          url: `/products/${encodeURIComponent(plName)}/${encodeURIComponent(folderName)}/assets/${encodeURIComponent(f)}`,
+          mimeType
+        };
+      });
+    res.json({ success: true, assets: files });
+  } catch (err) {
+    console.error('获取附件列表失败:', err);
+    res.status(500).json({ error: '获取失败: ' + err.message });
+  }
+});
+
+function getMimeType(filename) {
+  const ext = path.extname(filename).toLowerCase();
+  const map = {
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
+    '.pdf': 'application/pdf', '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xls': 'application/vnd.ms-excel', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.ppt': 'application/vnd.ms-powerpoint', '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.txt': 'text/plain', '.md': 'text/markdown', '.json': 'application/json',
+    '.zip': 'application/zip', '.mp4': 'video/mp4', '.mp3': 'audio/mpeg'
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
+// ============================================================================
+// API：删除需求附件
+// ============================================================================
+app.delete('/api/requirements/:id/assets/:filename', (req, res) => {
+  try {
+    const reqDir = findRequirementDir(req.params.id);
+    if (!reqDir) {
+      return res.status(404).json({ error: '需求不存在' });
+    }
+    const assetsDir = path.join(reqDir, 'assets');
+    const filePath = path.join(assetsDir, req.params.filename);
+    // 安全检查：确保文件在 assets 目录内
+    if (!filePath.startsWith(assetsDir + path.sep)) {
+      return res.status(400).json({ error: '非法文件路径' });
+    }
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: '文件不存在' });
+    }
+    fs.unlinkSync(filePath);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('删除附件失败:', err);
+    res.status(500).json({ error: '删除失败: ' + err.message });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`7s-PM-Craft 管家已启动`);
