@@ -1,0 +1,82 @@
+sequenceDiagram
+    autonumber
+
+    %% 4.1 Setting Parent Requirement
+    actor U as User
+    participant F as Frontend (app.js)
+    participant S as Server (server.js)
+    participant FS as FileSystem
+
+    U->>F: Click "设置父需求" in detail page
+    F->>F: showParentSelectorModal(reqId)
+    U->>F: Search & select parent REQ-000100
+    F->>S: POST /api/requirements/REQ-000001/parent<br/>{parent_id: "REQ-000100"}
+    S->>S: scanRequirements()
+    S->>S: detectCycle(REQ-000001, REQ-000100)
+    S->>S: Validate same product line
+    S->>S: Validate depth <= 2 (target has no parent)
+    alt Validation fails
+        S-->>F: 400 {error: "循环依赖" | "跨产品线" | "超过2层"}
+        F->>F: showToast(error, 'error')
+    else Validation passes
+        S->>FS: Read requirement.md
+        S->>FS: Write updated YAML with parent_id
+        S-->>F: 200 {success: true}
+        F->>F: refreshData() → re-render detail
+        F->>F: showToast('父需求已设置', 'success')
+    end
+
+    %% 4.2 Deleting Parent Requirement
+    U->>F: Click "删除" on parent REQ-000100
+    F->>F: showDeleteParentModal(REQ-000100)
+    F->>F: Query children via getChildren()
+    alt Parent has no children
+        F->>S: DELETE /api/requirements/REQ-000100
+        S->>FS: Delete folder
+        S-->>F: 200 {success: true}
+    else Parent has children
+        U->>F: Choose "保留子需求并提升为顶层"
+        F->>S: DELETE /api/requirements/REQ-000100?childrenAction=promote
+        S->>FS: Read each child's requirement.md
+        S->>FS: Remove parent_id from children
+        S->>FS: Delete parent folder
+        S-->>F: 200 {success: true, promoted: [...]}
+        F->>F: refreshData()
+    end
+
+    %% 4.3 List View with Hierarchy Indentation
+    U->>F: Navigate to list page
+    F->>S: GET /api/requirements
+    S-->>F: {requirements: [...]}
+    F->>F: buildHierarchyList(requirements)
+    F->>F: Sort: parents first, then children under parent
+    F->>F: renderReqTable(hierarchicalReqs)
+    loop Each requirement row
+        alt req has parent_id
+            F->>F: Render with pl-6 (24px indent)
+            F->>F: Render ▶/▼ collapse arrow
+        else req has children
+            F->>F: Render ▼ expand arrow
+        else
+            F->>F: Render normal row
+        end
+    end
+
+    %% 4.4 Kanban Expandable Card
+    U->>F: View kanban board
+    F->>F: renderKanban(reqs)
+    loop Each parent requirement
+        F->>F: Check hasChildren(req)
+        alt Has children
+            F->>F: Render "expand" chevron icon
+            F->>F: Render child count badge
+        end
+    end
+    U->>F: Click expand chevron on parent card
+    F->>F: getChildren(req.id)
+    F->>F: Inject mini child cards into card body
+    F->>F: Toggle chevron rotation
+    U->>F: Drag child card to another column
+    F->>S: POST /api/requirements/childId/status
+    S-->>F: 200
+    F->>F: refreshData()

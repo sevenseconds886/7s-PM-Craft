@@ -133,11 +133,73 @@ function parseRequirement(filePath) {
   try {
     const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
     const body = match[2].trim();
-    return { ...frontMatter, body, bodyPath: filePath };
+    const result = { ...frontMatter, body, bodyPath: filePath };
+    // parent_id 不存在或为 null/空字符串时省略该字段
+    if (!result.parent_id) {
+      delete result.parent_id;
+    }
+    return result;
   } catch (e) {
     console.error('解析 YAML 失败:', filePath, e.message);
     return null;
   }
+}
+
+// ============================================================================
+// 工具函数：检测循环依赖
+// 从 targetParentId 向上递归遍历 parent_id 链，若遇到 reqId 则返回 true
+// ============================================================================
+function detectCycle(requirements, reqId, targetParentId) {
+  let current = targetParentId;
+  let depth = 0;
+  const maxDepth = 50;
+  while (current && depth < maxDepth) {
+    if (current === reqId) return true;
+    const req = requirements.find(r => r.id === current);
+    current = req ? req.parent_id : null;
+    depth++;
+  }
+  return false;
+}
+
+// ============================================================================
+// 工具函数：校验 parent_id 是否合法
+// ============================================================================
+function validateParentId(requirements, reqId, parentId) {
+  // 自身不能设为自己的父需求
+  if (reqId && parentId === reqId) {
+    return { valid: false, error: '无法将自身设为父需求' };
+  }
+
+  if (!parentId) {
+    return { valid: true };
+  }
+
+  // 循环依赖
+  if (detectCycle(requirements, reqId, parentId)) {
+    return { valid: false, error: '无法设置循环依赖' };
+  }
+
+  const req = requirements.find(r => r.id === reqId);
+  const parentReq = requirements.find(r => r.id === parentId);
+
+  if (!parentReq) {
+    return { valid: false, error: '父需求不存在' };
+  }
+
+  // 跨产品线
+  const reqPL = req ? req.mainProductLine : null;
+  const parentPL = parentReq.mainProductLine;
+  if (reqPL && parentPL && reqPL !== parentPL) {
+    return { valid: false, error: '父需求与当前需求产品线不一致' };
+  }
+
+  // 超过2层：目标父需求若已有 parent_id（即 depth >= 1）
+  if (parentReq.parent_id) {
+    return { valid: false, error: '最多支持两层父子关系' };
+  }
+
+  return { valid: true };
 }
 
 // ============================================================================
@@ -174,7 +236,7 @@ function scanRequirements() {
             // 使用 normalizeProductLines 统一处理新旧格式
             const plInfo = normalizeProductLines(req);
 
-            requirements.push({
+            const reqObj = {
               ...req,
               folderName: reqDir.name,
               mainProductLine: plInfo.mainProductLine,
@@ -182,7 +244,12 @@ function scanRequirements() {
               productLine: plInfo.productLine,
               isArchive,
               hasPrototype: { web: hasWeb, mobile: hasMobile }
-            });
+            };
+            // parent_id 有则存，无则省略
+            if (req.parent_id) {
+              reqObj.parent_id = req.parent_id;
+            }
+            requirements.push(reqObj);
           }
         }
       }
@@ -545,7 +612,8 @@ app.post('/api/requirements', (req, res) => {
       platform = ['web'],
       developer = '',
       requester = '',
-      due_date = ''
+      due_date = '',
+      parent_id
     } = req.body;
 
     // productLine 支持 string 或 array（前端兼容）
@@ -553,6 +621,15 @@ app.post('/api/requirements', (req, res) => {
 
     if (!title || productLines.length === 0) {
       return res.status(400).json({ error: '标题和产品线为必填项' });
+    }
+
+    // 校验 parent_id
+    if (parent_id) {
+      const allReqs = scanRequirements();
+      const validation = validateParentId(allReqs, null, parent_id);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.error });
+      }
     }
 
     const id = getNextReqId();
@@ -576,7 +653,7 @@ app.post('/api/requirements', (req, res) => {
 
     // 构建 YAML front matter（同时写入新旧字段）
     const settings = getSettings();
-    const frontMatter = buildFrontMatterWithProductLines({
+    const frontMatterData = {
       id,
       title,
       status: settings.statusList[0] || '设计中',
@@ -590,7 +667,11 @@ app.post('/api/requirements', (req, res) => {
       updated: today,
       due_date,
       tags: []
-    });
+    };
+    if (parent_id) {
+      frontMatterData.parent_id = parent_id;
+    }
+    const frontMatter = buildFrontMatterWithProductLines(frontMatterData);
 
     const body = `## 需求描述\n\n## 验收标准\n\n## 备注\n`;
     const content = `---\n${yaml.dump(frontMatter)}---\n${body}`;
@@ -1083,6 +1164,10 @@ app.post('/api/ideas/:id/convert-to-draft', (req, res) => {
       return res.status(404).json({ error: '灵感不存在' });
     }
 
+    const { priority } = req.body;
+    const settings = getSettings();
+    const defaultPriority = (settings.priorityList || [])[2] || '';
+
     const draftId = getNextDraftId();
     const slug = generateSlug(idea.title || '无标题');
     const folderName = `${draftId}-${slug}`;
@@ -1101,7 +1186,7 @@ app.post('/api/ideas/:id/convert-to-draft', (req, res) => {
       title: idea.title || '无标题',
       description: idea.content || '',
       status: 'draft',
-      priority: 'medium',
+      priority: priority || defaultPriority,
       source: '灵感集',
       product_line: [],
       tags: idea.tags || [],
@@ -1139,7 +1224,7 @@ app.post('/api/ideas/:id/convert-to-draft', (req, res) => {
 // ============================================================================
 app.post('/api/ideas/:id/convert-to-requirement', (req, res) => {
   try {
-    const { product_line = [] } = req.body;
+    const { product_line = [], priority } = req.body;
     const ideas = scanIdeas();
     const idea = ideas.find(i => i.id === req.params.id);
 
@@ -1170,11 +1255,12 @@ app.post('/api/ideas/:id/convert-to-requirement', (req, res) => {
       fs.mkdirSync(reqDir, { recursive: true });
 
       // 构建 YAML front matter
+      const defaultPriority = (settings.priorityList || [])[2] || '';
       const frontMatter = buildFrontMatterWithProductLines({
         id,
         title: idea.title || '无标题',
         status: settings.statusList[0] || '设计中',
-        priority: 'P2',
+        priority: priority || defaultPriority,
         platform: ['web'],
         product_line: [pl],
         sprint: '',
@@ -1232,6 +1318,71 @@ app.get('/api/requirements/:id', (req, res) => {
   }
 
   res.json(requirement);
+});
+
+// ============================================================================
+// API：更新需求（支持 parent_id 等字段）
+// ============================================================================
+app.put('/api/requirements/:id', (req, res) => {
+  try {
+    const requirements = scanRequirements();
+    const requirement = requirements.find(r => r.id === req.params.id);
+
+    if (!requirement) {
+      return res.status(404).json({ error: '需求不存在' });
+    }
+
+    const { title, status, priority, platform, product_line, sprint, developer, requester, due_date, tags, parent_id } = req.body;
+
+    // 校验 parent_id
+    if (parent_id !== undefined) {
+      if (parent_id) {
+        const validation = validateParentId(requirements, req.params.id, parent_id);
+        if (!validation.valid) {
+          return res.status(400).json({ error: validation.error });
+        }
+      }
+    }
+
+    const content = fs.readFileSync(requirement.bodyPath, 'utf-8');
+    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+
+    if (!match) {
+      return res.status(500).json({ error: '文件格式错误' });
+    }
+
+    const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
+
+    if (title !== undefined) frontMatter.title = title;
+    if (status !== undefined) frontMatter.status = status;
+    if (priority !== undefined) frontMatter.priority = priority;
+    if (platform !== undefined) frontMatter.platform = Array.isArray(platform) ? platform : [platform];
+    if (product_line !== undefined) frontMatter.product_line = Array.isArray(product_line) ? product_line : (product_line ? [product_line] : []);
+    if (sprint !== undefined) frontMatter.sprint = sprint;
+    if (developer !== undefined) frontMatter.developer = developer;
+    if (requester !== undefined) frontMatter.requester = requester;
+    if (due_date !== undefined) frontMatter.due_date = due_date;
+    if (tags !== undefined) frontMatter.tags = Array.isArray(tags) ? tags : [];
+
+    if (parent_id !== undefined) {
+      if (parent_id) {
+        frontMatter.parent_id = parent_id;
+      } else {
+        delete frontMatter.parent_id;
+      }
+    }
+
+    frontMatter.updated = new Date().toISOString().split('T')[0];
+
+    const updatedFM = buildFrontMatterWithProductLines(frontMatter);
+    const newContent = `---\n${yaml.dump(updatedFM)}---\n${match[2]}`;
+    fs.writeFileSync(requirement.bodyPath, newContent);
+
+    res.json({ success: true, id: req.params.id });
+  } catch (err) {
+    console.error('更新需求失败:', err);
+    res.status(500).json({ error: '更新失败: ' + err.message });
+  }
 });
 
 // ============================================================================
@@ -1340,6 +1491,153 @@ app.post('/api/requirements/:id/sprint', (req, res) => {
   } catch (err) {
     console.error('修改迭代失败:', err);
     res.status(500).json({ error: '修改失败: ' + err.message });
+  }
+});
+
+// ============================================================================
+// API：设置/修改父需求
+// ============================================================================
+app.post('/api/requirements/:id/parent', (req, res) => {
+  try {
+    const { parent_id } = req.body;
+    const requirements = scanRequirements();
+    const requirement = requirements.find(r => r.id === req.params.id);
+
+    if (!requirement) {
+      return res.status(404).json({ error: '需求不存在' });
+    }
+
+    const validation = validateParentId(requirements, req.params.id, parent_id);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const content = fs.readFileSync(requirement.bodyPath, 'utf-8');
+    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+
+    if (!match) {
+      return res.status(500).json({ error: '文件格式错误' });
+    }
+
+    const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
+    if (parent_id) {
+      frontMatter.parent_id = parent_id;
+    } else {
+      delete frontMatter.parent_id;
+    }
+    frontMatter.updated = new Date().toISOString().split('T')[0];
+
+    const updatedFM = buildFrontMatterWithProductLines(frontMatter);
+    const newContent = `---\n${yaml.dump(updatedFM)}---\n${match[2]}`;
+    fs.writeFileSync(requirement.bodyPath, newContent);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('设置父需求失败:', err);
+    res.status(500).json({ error: '设置失败: ' + err.message });
+  }
+});
+
+// ============================================================================
+// API：解除父子关系
+// ============================================================================
+app.delete('/api/requirements/:id/parent', (req, res) => {
+  try {
+    const requirements = scanRequirements();
+    const requirement = requirements.find(r => r.id === req.params.id);
+
+    if (!requirement) {
+      return res.status(404).json({ error: '需求不存在' });
+    }
+
+    const content = fs.readFileSync(requirement.bodyPath, 'utf-8');
+    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+
+    if (!match) {
+      return res.status(500).json({ error: '文件格式错误' });
+    }
+
+    const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
+    delete frontMatter.parent_id;
+    frontMatter.updated = new Date().toISOString().split('T')[0];
+
+    const updatedFM = buildFrontMatterWithProductLines(frontMatter);
+    const newContent = `---\n${yaml.dump(updatedFM)}---\n${match[2]}`;
+    fs.writeFileSync(requirement.bodyPath, newContent);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('解除父子关系失败:', err);
+    res.status(500).json({ error: '解除失败: ' + err.message });
+  }
+});
+
+// ============================================================================
+// API：删除需求（含子需求处理）
+// ============================================================================
+app.delete('/api/requirements/:id', (req, res) => {
+  try {
+    const requirements = scanRequirements();
+    const requirement = requirements.find(r => r.id === req.params.id);
+
+    if (!requirement) {
+      return res.status(404).json({ error: '需求不存在' });
+    }
+
+    const children = requirements.filter(r => r.parent_id === req.params.id);
+    const childrenAction = req.query.childrenAction;
+
+    if (children.length > 0 && !childrenAction) {
+      return res.status(400).json({ error: '该需求包含子需求，请先处理子需求' });
+    }
+
+    const promoted = [];
+
+    if (children.length > 0 && childrenAction === 'promote') {
+      // 移除所有子需求的 parent_id
+      for (const child of children) {
+        const childContent = fs.readFileSync(child.bodyPath, 'utf-8');
+        const childMatch = childContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+        if (childMatch) {
+          const childFM = yaml.load(childMatch[1], { schema: yaml.JSON_SCHEMA });
+          delete childFM.parent_id;
+          childFM.updated = new Date().toISOString().split('T')[0];
+          const updatedChildFM = buildFrontMatterWithProductLines(childFM);
+          const newChildContent = `---\n${yaml.dump(updatedChildFM)}---\n${childMatch[2]}`;
+          fs.writeFileSync(child.bodyPath, newChildContent);
+        }
+        promoted.push(child.id);
+      }
+    }
+
+    if (children.length > 0 && childrenAction === 'delete') {
+      // 递归删除所有子需求文件夹
+      for (const child of children) {
+        const childDir = path.dirname(child.bodyPath);
+        if (fs.existsSync(childDir)) {
+          try {
+            execSync(`rmdir /S /Q "${childDir}"`, { stdio: 'ignore', windowsHide: true });
+          } catch (e) {
+            fs.rmSync(childDir, { recursive: true, force: true });
+          }
+        }
+      }
+    }
+
+    // 删除父需求文件夹
+    const reqDir = path.dirname(requirement.bodyPath);
+    if (fs.existsSync(reqDir)) {
+      try {
+        execSync(`rmdir /S /Q "${reqDir}"`, { stdio: 'ignore', windowsHide: true });
+      } catch (e) {
+        fs.rmSync(reqDir, { recursive: true, force: true });
+      }
+    }
+
+    res.json({ success: true, promoted: promoted.length > 0 ? promoted : undefined });
+  } catch (err) {
+    console.error('删除需求失败:', err);
+    res.status(500).json({ error: '删除失败: ' + err.message });
   }
 });
 
@@ -1505,6 +1803,7 @@ app.get('/api/requirements/:id/history/:timestamp', (req, res) => {
 // ============================================================================
 app.post('/api/requirements/:id/archive', (req, res) => {
   try {
+    const { cascade } = req.body;
     const requirements = scanRequirements();
     const requirement = requirements.find(r => r.id === req.params.id);
 
@@ -1547,6 +1846,41 @@ app.post('/api/requirements/:id/archive', (req, res) => {
       fs.writeFileSync(newBodyPath, newContent);
     }
 
+    // cascade=true：一并归档所有子需求
+    if (cascade === true || cascade === 'true') {
+      const children = requirements.filter(r => r.parent_id === req.params.id && !r.isArchive);
+      const archivedChildren = [];
+      for (const child of children) {
+        const childSourceDir = path.dirname(child.bodyPath);
+        const childPrimaryPL = child.mainProductLine ||
+          (Array.isArray(child.productLine) ? child.productLine[0] : child.productLine);
+        const childTargetDir = path.join(WORKSPACE, 'archive', childPrimaryPL, child.folderName);
+
+        if (!fs.existsSync(childTargetDir)) {
+          const childArchivePlDir = path.join(WORKSPACE, 'archive', childPrimaryPL);
+          if (!fs.existsSync(childArchivePlDir)) {
+            fs.mkdirSync(childArchivePlDir, { recursive: true });
+          }
+          fs.renameSync(childSourceDir, childTargetDir);
+
+          const childNewBodyPath = path.join(childTargetDir, 'requirement.md');
+          const childContent = fs.readFileSync(childNewBodyPath, 'utf-8');
+          const childMatch = childContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+          if (childMatch) {
+            const childFM = yaml.load(childMatch[1], { schema: yaml.JSON_SCHEMA });
+            childFM.status = '已完成';
+            childFM.updated = new Date().toISOString().split('T')[0];
+            const updatedChildFM = buildFrontMatterWithProductLines(childFM);
+            const newChildContent = `---\n${yaml.dump(updatedChildFM)}---\n${childMatch[2]}`;
+            fs.writeFileSync(childNewBodyPath, newChildContent);
+          }
+          archivedChildren.push(child.id);
+        }
+      }
+      res.json({ success: true, id: req.params.id, archivedChildren });
+      return;
+    }
+
     res.json({ success: true, id: req.params.id });
   } catch (err) {
     console.error('归档需求失败:', err);
@@ -1556,6 +1890,7 @@ app.post('/api/requirements/:id/archive', (req, res) => {
 
 // ============================================================================
 // API：回退归档需求（从 archive 移回 products，清除迭代）
+// 恢复父需求时，自动恢复其所有子需求
 // ============================================================================
 app.post('/api/requirements/:id/unarchive', (req, res) => {
   try {
@@ -1652,7 +1987,69 @@ app.post('/api/requirements/:id/unarchive', (req, res) => {
       fs.writeFileSync(newReqFile, newContent);
     }
 
-    res.json({ success: true, id: req.params.id, productLine: targetProductLine });
+    // 自动恢复所有子需求
+    const allReqs = scanRequirements();
+    const children = allReqs.filter(r => r.parent_id === req.params.id && r.isArchive);
+    const restoredChildren = [];
+    const warnings = [];
+
+    for (const child of children) {
+      const childSourceDir = path.dirname(child.bodyPath);
+      const childPrimaryPL = child.mainProductLine ||
+        (Array.isArray(child.productLine) ? child.productLine[0] : child.productLine);
+      const childTargetPL = fs.existsSync(path.join(WORKSPACE, 'products', childPrimaryPL)) ? childPrimaryPL : '未分类';
+      const childTargetDir = path.join(WORKSPACE, 'products', childTargetPL, child.folderName);
+
+      const childTargetPlDir = path.join(WORKSPACE, 'products', childTargetPL);
+      if (!fs.existsSync(childTargetPlDir)) {
+        fs.mkdirSync(childTargetPlDir, { recursive: true });
+      }
+
+      if (fs.existsSync(childTargetDir)) {
+        warnings.push(`子需求 ${child.id} 目标位置已存在，跳过恢复`);
+        continue;
+      }
+
+      try {
+        execSync(`xcopy "${childSourceDir}" "${childTargetDir}" /E /I /Y /Q`, { stdio: 'pipe', windowsHide: true });
+        execSync(`rmdir /S /Q "${childSourceDir}"`, { stdio: 'pipe', windowsHide: true });
+
+        const childNewReqFile = path.join(childTargetDir, 'requirement.md');
+        const childContent = fs.readFileSync(childNewReqFile, 'utf-8');
+        const childMatch = childContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+        if (childMatch) {
+          const childFM = yaml.load(childMatch[1], { schema: yaml.JSON_SCHEMA });
+          childFM.status = '设计中';
+          delete childFM.sprint;
+          if (childTargetPL !== childPrimaryPL) {
+            let pls = childFM.product_line;
+            if (typeof pls === 'string') pls = [pls];
+            if (Array.isArray(pls)) {
+              childFM.product_line = pls.map(pl => pl === childPrimaryPL ? childTargetPL : pl);
+            } else {
+              childFM.product_line = [childTargetPL];
+            }
+          }
+          childFM.updated = new Date().toISOString().split('T')[0];
+          const updatedChildFM = buildFrontMatterWithProductLines(childFM);
+          const newChildContent = `---\n${yaml.dump(updatedChildFM)}---\n${childMatch[2]}`;
+          fs.writeFileSync(childNewReqFile, newChildContent);
+        }
+        restoredChildren.push(child.id);
+      } catch (e) {
+        warnings.push(`子需求 ${child.id} 恢复失败: ${e.message}`);
+      }
+    }
+
+    const result = { success: true, id: req.params.id, productLine: targetProductLine };
+    if (restoredChildren.length > 0) {
+      result.restoredChildren = restoredChildren;
+    }
+    if (warnings.length > 0) {
+      result.warnings = warnings;
+    }
+
+    res.json(result);
   } catch (err) {
     console.error('回退归档需求失败:', err);
     res.status(500).json({ error: '回退失败: ' + err.message });

@@ -259,7 +259,7 @@ test.describe('7s-PM-Craft E2E 测试', () => {
     });
 
     test('表格中应存在状态下拉框', async ({ page }) => {
-      const rowCount = await page.locator('tbody tr').count();
+      const rowCount = await page.locator('tbody tr:not(.load-more-row)').count();
       if (rowCount > 0) {
         const statusDropdowns = page.locator('.cdropdown[data-onchange*="updateStatus"]');
         await expect(statusDropdowns).toHaveCount(rowCount);
@@ -267,7 +267,7 @@ test.describe('7s-PM-Craft E2E 测试', () => {
     });
 
     test('表格中应存在优先级下拉框', async ({ page }) => {
-      const rowCount = await page.locator('tbody tr').count();
+      const rowCount = await page.locator('tbody tr:not(.load-more-row)').count();
       if (rowCount > 0) {
         const priorityDropdowns = page.locator('.cdropdown[data-onchange*="updatePriority"]');
         await expect(priorityDropdowns).toHaveCount(rowCount);
@@ -275,7 +275,7 @@ test.describe('7s-PM-Craft E2E 测试', () => {
     });
 
     test('表格中应存在迭代下拉框', async ({ page }) => {
-      const rowCount = await page.locator('tbody tr').count();
+      const rowCount = await page.locator('tbody tr:not(.load-more-row)').count();
       if (rowCount > 0) {
         const sprintDropdowns = page.locator('.cdropdown[data-onchange*="updateSprint"]');
         await expect(sprintDropdowns).toHaveCount(rowCount);
@@ -1053,5 +1053,147 @@ test.describe('API: /api/drafts (需求池)', () => {
       data: { priority: 'high' }
     });
     expect(response.status()).toBe(400);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API 单元测试：父子需求层级
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe.serial('API: Parent-Child Hierarchy', () => {
+  let apiContext;
+  const API_BASE = `http://localhost:${process.env.PORT || 3456}`;
+  let parentReqId;
+  let childReqId;
+  const uniqueSuffix = Date.now().toString(36);
+
+  test.beforeAll(async () => {
+    apiContext = await pwRequest.newContext({ baseURL: API_BASE });
+
+    // 创建父需求（使用唯一标题避免 ID 冲突）
+    const parentResp = await apiContext.post('/api/requirements', {
+      data: { title: `父需求测试-${uniqueSuffix}`, productLine: '产品线A', priority: 'P2', platform: ['web'] }
+    });
+    const parentBody = await parentResp.json();
+    parentReqId = parentBody.id;
+
+    // 创建子需求
+    const childResp = await apiContext.post('/api/requirements', {
+      data: { title: `子需求测试-${uniqueSuffix}`, productLine: '产品线A', priority: 'P2', platform: ['web'], parent_id: parentReqId }
+    });
+    const childBody = await childResp.json();
+    childReqId = childBody.id;
+  });
+
+  test.afterAll(async () => {
+    // 清理：先清理子需求再清理父需求
+    if (parentReqId) {
+      await apiContext.delete(`/api/requirements/${parentReqId}?childrenAction=delete`).catch(() => {});
+    }
+    await apiContext.dispose();
+  });
+
+  test('GET /api/requirements 应包含 parent_id', async () => {
+    const response = await apiContext.get('/api/requirements');
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    const child = body.requirements.find(r => r.id === childReqId);
+    expect(child).toBeDefined();
+    expect(child.parent_id).toBe(parentReqId);
+  });
+
+  test('POST /api/requirements/:id/parent 应设置父需求', async () => {
+    // 先创建一个独立需求
+    const resp = await apiContext.post('/api/requirements', {
+      data: { title: '独立需求', productLine: '产品线A', priority: 'P2', platform: ['web'] }
+    });
+    const reqBody = await resp.json();
+    const reqId = reqBody.id;
+
+    const setResp = await apiContext.post(`/api/requirements/${reqId}/parent`, {
+      data: { parent_id: parentReqId }
+    });
+    expect(setResp.status()).toBe(200);
+    const setBody = await setResp.json();
+    expect(setBody.success).toBe(true);
+
+    // 验证
+    const getResp = await apiContext.get(`/api/requirements/${reqId}`);
+    const getBody = await getResp.json();
+    expect(getBody.parent_id).toBe(parentReqId);
+
+    // 清理
+    await apiContext.delete(`/api/requirements/${reqId}?childrenAction=delete`);
+  });
+
+  test('POST /api/requirements/:id/parent 循环依赖应返回 400', async () => {
+    const setResp = await apiContext.post(`/api/requirements/${parentReqId}/parent`, {
+      data: { parent_id: childReqId }
+    });
+    expect(setResp.status()).toBe(400);
+    const body = await setResp.json();
+    expect(body.error).toContain('循环');
+  });
+
+  test('POST /api/requirements/:id/parent 跨产品线应返回 400', async () => {
+    // 创建不同产品线的需求
+    const otherResp = await apiContext.post('/api/requirements', {
+      data: { title: '其他产品线需求', productLine: '未分类', priority: 'P2', platform: ['web'] }
+    });
+    const otherBody = await otherResp.json();
+    const otherId = otherBody.id;
+
+    const setResp = await apiContext.post(`/api/requirements/${otherId}/parent`, {
+      data: { parent_id: parentReqId }
+    });
+    expect(setResp.status()).toBe(400);
+    const body = await setResp.json();
+    expect(body.error).toContain('产品线');
+
+    await apiContext.delete(`/api/requirements/${otherId}?childrenAction=delete`);
+  });
+
+  test('POST /api/requirements/:id/parent 超过2层应返回 400', async () => {
+    // 创建孙需求（子需求的子需求）应被拒绝
+    const resp = await apiContext.post('/api/requirements', {
+      data: { title: '孙需求测试', productLine: '产品线A', priority: 'P2', platform: ['web'], parent_id: childReqId }
+    });
+    expect(resp.status()).toBe(400);
+    const body = await resp.json();
+    expect(body.error).toContain('两层');
+  });
+
+  test('DELETE /api/requirements/:id/parent 应解除父子关系', async () => {
+    const delResp = await apiContext.delete(`/api/requirements/${childReqId}/parent`);
+    expect(delResp.status()).toBe(200);
+    const body = await delResp.json();
+    expect(body.success).toBe(true);
+
+    // 恢复
+    await apiContext.post(`/api/requirements/${childReqId}/parent`, {
+      data: { parent_id: parentReqId }
+    });
+  });
+
+  test('DELETE /api/requirements/:id 无 childrenAction 且有子需求应返回 400', async () => {
+    const delResp = await apiContext.delete(`/api/requirements/${parentReqId}`);
+    expect(delResp.status()).toBe(400);
+    const body = await delResp.json();
+    expect(body.error).toContain('子需求');
+  });
+
+  test('DELETE /api/requirements/:id?childrenAction=promote 应提升子需求', async () => {
+    // 先归档子需求以解除关系，然后删除父需求，再重新创建
+    // 这里只测试 promote 行为：提升后子需求无 parent_id
+    const promoteResp = await apiContext.delete(`/api/requirements/${parentReqId}?childrenAction=promote`);
+    expect(promoteResp.status()).toBe(200);
+    const body = await promoteResp.json();
+    expect(body.success).toBe(true);
+    expect(body.promoted).toContain(childReqId);
+
+    // 验证子需求已提升
+    const getResp = await apiContext.get(`/api/requirements/${childReqId}`);
+    const getBody = await getResp.json();
+    expect(getBody.parent_id).toBeUndefined();
   });
 });

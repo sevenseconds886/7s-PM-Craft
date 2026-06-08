@@ -1,0 +1,74 @@
+classDiagram
+    direction LR
+
+    class Requirement {
+        +string id
+        +string title
+        +string status
+        +string priority
+        +string mainProductLine
+        +string[] relatedProductLines
+        +string[] productLine
+        +string sprint
+        +string created
+        +string updated
+        +string parent_id
+        +string bodyPath
+        +string folderName
+        +boolean isArchive
+        +object hasPrototype
+        +string body
+    }
+
+    class Draft {
+        +string id
+        +string title
+        +string status
+        +string priority
+        +string[] product_line
+        +string[] tags
+        +string created_at
+        +string updated_at
+        +string[] published_ids
+        +string bodyPath
+        +string folderPath
+        +string[] prototypeFiles
+    }
+
+    class HierarchyUtils {
+        +getChildren(requirements, parentId) Requirement[]
+        +getParent(requirements, childId) Requirement~null~
+        +hasChildren(requirements, parentId) boolean
+        +getDepth(requirements, reqId) number
+        +getBreadcrumbPath(requirements, reqId) string
+        +buildHierarchyList(requirements) Requirement[]
+        +checkCycle(requirements, reqId, newParentId) boolean
+    }
+
+    class ServerAPI {
+        +scanRequirements() Requirement[]
+        +parseRequirement(filePath) Requirement
+        +detectCycle(requirements, reqId, targetParentId) boolean
+        +POST /api/requirements/:id/parent body~parent_id~ response
+        +DELETE /api/requirements/:id/parent response
+        +POST /api/requirements body~...parent_id...~ response
+        +PUT /api/requirements/:id body~...parent_id...~ response
+        +DELETE /api/requirements/:id query~childrenAction~ response
+        +POST /api/requirements/:id/archive body~cascade~ response
+        +POST /api/requirements/:id/unarchive response
+    }
+
+    class FrontendRender {
+        +renderReqTable(reqs) void
+        +renderKanban(reqs) void
+        +renderDetail(reqId) void
+        +showParentSelectorModal(reqId) void
+        +showDeleteParentModal(reqId) void
+        +expandKanbanCard(cardEl, children) void
+        +collapseKanbanCard(cardEl) void
+    }
+
+    Requirement --> HierarchyUtils : consumed by
+    ServerAPI --> Requirement : produces
+    FrontendRender --> Requirement : renders
+    FrontendRender --> HierarchyUtils : uses

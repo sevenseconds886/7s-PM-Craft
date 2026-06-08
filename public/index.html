@@ -214,6 +214,40 @@
     .req-row { transition: all 0.15s ease; }
     .req-row:hover { background: #f0eee9; }
 
+    /* Hierarchy table rows */
+    .req-row-child {
+      padding-left: 24px;
+      position: relative;
+    }
+    .req-row-child::before {
+      content: '';
+      position: absolute;
+      left: 8px;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: #d4cfc7;
+    }
+    .req-row-parent .tree-toggle {
+      cursor: pointer;
+      transition: transform 0.2s;
+      display: inline-block;
+      width: 16px;
+      text-align: center;
+      font-size: 10px;
+      color: #a8a29e;
+    }
+    .req-row-parent.collapsed .tree-toggle {
+      transform: rotate(-90deg);
+    }
+    .req-row-child .tree-prefix {
+      display: inline-block;
+      width: 16px;
+      text-align: center;
+      color: #d4cfc7;
+      font-size: 10px;
+    }
+
     /* Card hover */
     .product-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
     .product-card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px -12px rgba(28,26,23,0.15); }
@@ -260,7 +294,7 @@
 
     /* Kanban */
     .kanban-column { transition: all 0.2s ease; }
-    .kanban-card { transition: all 0.2s ease; }
+    .kanban-card { transition: all 0.2s ease; position: relative; }
     .kanban-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px -2px rgba(28,26,23,0.1); }
     .kanban-card:active { cursor: grabbing; }
     .line-clamp-2 {
@@ -268,6 +302,55 @@
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
       overflow: hidden;
+    }
+    .kanban-expand-toggle {
+      position: absolute;
+      top: 8px;
+      right: 32px;
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      color: #a8a29e;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.2s;
+      z-index: 10;
+    }
+    .kanban-expand-toggle:hover {
+      background: #f5f5f4;
+      color: #57534e;
+    }
+    .kanban-child-count {
+      display: inline-block;
+      font-size: 10px;
+      color: #a8a29e;
+      margin-left: 4px;
+    }
+    .kanban-children {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #e7e5e4;
+    }
+    .kanban-child-mini {
+      padding: 6px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .kanban-child-mini:hover {
+      background: #f5f5f4;
+    }
+    .status-badge-mini {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      white-space: nowrap;
     }
 
     /* View mode buttons */
@@ -822,6 +905,16 @@
 
         <!-- 右侧需求文档 -->
         <div class="bg-white border-l border-ink-100 overflow-y-auto hidden flex flex-col" id="doc-panel" style="width:380px;min-width:260px;max-width:600px">
+          <!-- 父需求区域 -->
+          <div id="detail-parent-section" class="px-6 pt-4 mb-2 hidden" data-testid="detail-parent-section">
+            <div class="text-xs uppercase tracking-wider text-stone-400 mb-1">父需求</div>
+            <div id="detail-parent-content" data-testid="detail-parent-content"></div>
+          </div>
+          <!-- 子需求区域 -->
+          <div id="detail-children-section" class="px-6 mb-2 hidden" data-testid="detail-children-section">
+            <div class="text-xs uppercase tracking-wider text-stone-400 mb-1">子需求</div>
+            <div id="detail-children-content" data-testid="detail-children-content"></div>
+          </div>
           <div class="px-6 py-3 border-b border-ink-100 flex items-center justify-between bg-white">
             <span class="text-sm font-semibold text-ink-700">需求文档</span>
             <div class="flex gap-2">
@@ -1035,6 +1128,10 @@
           <div class="bg-ink-50 rounded-xl p-4">
             <p id="convert-idea-title" class="font-medium text-ink-800 mb-1"></p>
             <p id="convert-idea-desc" class="text-sm text-ink-500 line-clamp-2"></p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-ink-700 mb-2">优先级</label>
+            <div id="convert-idea-priority-dd"></div>
           </div>
           <div id="convert-idea-product-line-section">
             <label class="block text-sm font-medium text-ink-700 mb-2">发布到产品线 <span class="text-xs text-ink-400">(可多选)</span></label>
@@ -1398,6 +1495,43 @@
             <div id="version-preview-header" class="px-4 py-3 border-b border-ink-100 bg-ink-50 text-xs text-ink-500"></div>
             <div id="version-preview-content" class="flex-1 overflow-y-auto p-4 text-sm text-ink-700 prose prose-sm max-w-none"></div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 设置父需求弹窗 -->
+    <div id="parent-selector-modal" class="fixed inset-0 bg-black/50 hidden z-50 flex items-center justify-center" data-testid="parent-selector-modal">
+      <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
+        <h3 class="text-lg font-semibold text-stone-800 mb-4">设置父需求</h3>
+        <input id="parent-search-input" type="text" placeholder="搜索需求 ID 或标题..."
+               class="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
+               oninput="renderParentSearchResults(this.value)" data-testid="parent-search-input">
+        <div id="parent-search-results" class="max-h-48 overflow-y-auto border border-stone-100 rounded-lg" data-testid="parent-search-results">
+          <!-- 搜索结果动态填充 -->
+        </div>
+        <div class="flex justify-end gap-2 mt-4">
+          <button onclick="closeParentSelectorModal()" class="px-4 py-2 text-sm text-stone-500 hover:text-stone-700" data-testid="close-parent-modal-btn">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 删除父需求确认弹窗 -->
+    <div id="delete-parent-modal" class="fixed inset-0 bg-black/50 hidden z-50 flex items-center justify-center" data-testid="delete-parent-modal">
+      <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
+        <h3 class="text-lg font-semibold text-stone-800 mb-2">该需求包含子需求</h3>
+        <p class="text-sm text-stone-500 mb-4">请选择如何处理 <span id="delete-parent-child-count"></span> 个子需求：</p>
+        <div class="space-y-2">
+          <button onclick="deleteWithChildrenAction('promote')" class="w-full text-left px-4 py-3 border border-stone-200 rounded-lg hover:bg-stone-50 hover:border-blue-300 transition" data-testid="delete-promote-btn">
+            <div class="font-medium text-stone-800">保留子需求，提升为顶层</div>
+            <div class="text-xs text-stone-400">推荐：子需求变为独立需求</div>
+          </button>
+          <button onclick="deleteWithChildrenAction('delete')" class="w-full text-left px-4 py-3 border border-stone-200 rounded-lg hover:bg-red-50 hover:border-red-300 transition" data-testid="delete-cascade-btn">
+            <div class="font-medium text-red-600">一并删除所有子需求</div>
+            <div class="text-xs text-stone-400">警告：此操作不可撤销</div>
+          </button>
+          <button onclick="closeDeleteParentModal()" class="w-full text-left px-4 py-3 border border-stone-200 rounded-lg hover:bg-stone-50" data-testid="delete-cancel-btn">
+            <div class="font-medium text-stone-600">取消</div>
+          </button>
         </div>
       </div>
     </div>

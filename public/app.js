@@ -42,6 +42,70 @@ const CONFIG = {
   DOC_PANEL_MAX_WIDTH: 600,
 };
 
+// ============================================================================
+// 层级结构工具函数
+// ============================================================================
+const HierarchyUtils = {
+  getChildren(requirements, parentId) {
+    return requirements.filter(r => r.parent_id === parentId);
+  },
+  getParent(requirements, reqId) {
+    const req = requirements.find(r => r.id === reqId);
+    if (!req || !req.parent_id) return null;
+    return requirements.find(r => r.id === req.parent_id) || null;
+  },
+  hasChildren(requirements, reqId) {
+    return requirements.some(r => r.parent_id === reqId);
+  },
+  getDepth(requirements, reqId) {
+    const req = requirements.find(r => r.id === reqId);
+    if (!req || !req.parent_id) return 0;
+    return 1;
+  },
+  getBreadcrumbPath(requirements, reqId) {
+    const req = requirements.find(r => r.id === reqId);
+    if (!req || !req.parent_id) return req.title;
+    const parent = requirements.find(r => r.id === req.parent_id);
+    return parent ? `${parent.title} > ${req.title}` : req.title;
+  },
+  buildHierarchyList(requirements) {
+    const result = [];
+    const processed = new Set();
+    requirements.filter(r => !r.parent_id).forEach(parent => {
+      result.push(parent);
+      processed.add(parent.id);
+      requirements.filter(r => r.parent_id === parent.id).forEach(child => {
+        result.push(child);
+        processed.add(child.id);
+      });
+    });
+    requirements.filter(r => !processed.has(r.id)).forEach(r => result.push(r));
+    return result;
+  },
+  checkCycleClient(requirements, reqId, parentId) {
+    let current = parentId;
+    let depth = 0;
+    while (current && depth < 50) {
+      if (current === reqId) return true;
+      const req = requirements.find(r => r.id === current);
+      current = req ? req.parent_id : null;
+      depth++;
+    }
+    return false;
+  }
+};
+
+// 表格行折叠切换
+function toggleParentRow(toggleEl, parentId) {
+  const row = toggleEl.closest('tr');
+  const isCollapsed = row.classList.contains('collapsed');
+  const childRows = document.querySelectorAll(`tr[data-child-of="${CSS.escape(parentId)}"]`);
+  childRows.forEach(child => {
+    child.classList.toggle('hidden', !isCollapsed);
+  });
+  row.classList.toggle('collapsed', !isCollapsed);
+}
+
 let lastSearchQuery = '';
 let activeFilters = { status: null, priority: null, sprint: null, developer: '', requester: '' }; // 高级筛选状态
 let statusViewMode = 'list'; // 'card' | 'list'
@@ -946,10 +1010,14 @@ function renderKanban(reqs) {
              ondragover="handleKanbanDragOver(event)"
              ondragleave="handleKanbanDragLeave(event)"
              ondrop="handleKanbanDrop(event, '${status}')">
-          ${statusReqs.map(req => `
+          ${statusReqs.map(req => {
+            const hasChildren = HierarchyUtils.hasChildren(currentData.requirements, req.id);
+            const childCount = hasChildren ? HierarchyUtils.getChildren(currentData.requirements, req.id).length : 0;
+            return `
             <div draggable="true"
                  ondragstart="handleKanbanDragStart(event, '${escapeHtml(req.id)}')"
                  class="kanban-card rounded-xl shadow-sm border border-ink-100 bg-white cursor-grab relative group overflow-hidden"
+                 data-req-id="${escapeHtml(req.id)}"
                  onclick="showDetail('${escapeHtml(req.id)}')">
               <div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:${config.accent};border-radius:12px 0 0 12px;"></div>
               <div class="p-3.5 pl-5">
@@ -959,9 +1027,10 @@ function renderKanban(reqs) {
                         title="归档" draggable="false">
                   <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 6v8h12V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 3h14v3H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
                 </button>
+                ${hasChildren ? `<div class="kanban-expand-toggle" onclick="event.stopPropagation();toggleKanbanCard(this.closest('.kanban-card'),'${escapeHtml(req.id)}')">▼</div>` : ''}
                 <div class="flex items-center gap-2 mb-2 pr-6">
                   <span style="width:6px;height:6px;border-radius:50%;background:${priorityDotColors[req.priority] || '#d4cfc7'};flex-shrink:0;" title="${req.priority}"></span>
-                  <div class="text-sm text-ink-800 flex-1 font-medium" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${escapeHtml(req.title)}</div>
+                  <div class="text-sm text-ink-800 flex-1 font-medium" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${escapeHtml(req.title)}${hasChildren ? `<span class="kanban-child-count">${childCount} 个子需求</span>` : ''}</div>
                 </div>
                 <div class="flex items-center justify-between">
                   <span class="font-mono text-xs text-ink-400">${escapeHtml(req.id)}</span>
@@ -970,13 +1039,53 @@ function renderKanban(reqs) {
                     <span>${(req.platform || ['web']).join(', ')}</span>
                   </div>
                 </div>
+                <div class="kanban-children"></div>
               </div>
             </div>
-          `).join('')}
+          `}).join('')}
         </div>
       </div>
     `;
   }).join('');
+}
+
+function expandKanbanCard(cardEl, parentId) {
+  const children = HierarchyUtils.getChildren(currentData.requirements, parentId);
+  const container = cardEl.querySelector('.kanban-children');
+  if (!container) return;
+
+  container.innerHTML = children.map(child => {
+    const stColors = CD_STATUS_COLORS[child.status] || {bg:'#e8e5e0',text:'#635a50',border:'#d4cfc7'};
+    return `
+    <div class="kanban-child-mini" onclick="event.stopPropagation();showDetail('${escapeHtml(child.id)}')" draggable="true"
+         ondragstart="handleKanbanDragStart(event, '${escapeHtml(child.id)}')">
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-mono text-stone-400">${escapeHtml(child.id)}</span>
+        <span class="text-xs text-stone-700 truncate">${escapeHtml(child.title)}</span>
+      </div>
+      <span class="text-xs status-badge-mini" style="background:${stColors.bg};color:${stColors.text};border:1px solid ${stColors.border}">${escapeHtml(child.status)}</span>
+    </div>
+  `}).join('');
+
+  cardEl.classList.add('expanded');
+  const toggle = cardEl.querySelector('.kanban-expand-toggle');
+  if (toggle) toggle.textContent = '▲';
+}
+
+function collapseKanbanCard(cardEl) {
+  const container = cardEl.querySelector('.kanban-children');
+  if (container) container.innerHTML = '';
+  cardEl.classList.remove('expanded');
+  const toggle = cardEl.querySelector('.kanban-expand-toggle');
+  if (toggle) toggle.textContent = '▼';
+}
+
+function toggleKanbanCard(cardEl, parentId) {
+  if (cardEl.classList.contains('expanded')) {
+    collapseKanbanCard(cardEl);
+  } else {
+    expandKanbanCard(cardEl, parentId);
+  }
 }
 
 function renderReqTable(reqs, reset = false) {
@@ -989,14 +1098,17 @@ function renderReqTable(reqs, reset = false) {
     return;
   }
 
+  // 按层级排序
+  const sortedReqs = HierarchyUtils.buildHierarchyList(reqs);
+
   // 分页逻辑
-  const totalCount = reqs.length;
+  const totalCount = sortedReqs.length;
   const pageCount = Math.ceil(totalCount / listPageSize);
   const currentPage = reset ? 1 : listCurrentPage;
   if (reset) listCurrentPage = 1;
 
   const endIndex = currentPage * listPageSize;
-  const pageReqs = reqs.slice(0, endIndex);
+  const pageReqs = sortedReqs.slice(0, endIndex);
   const hasMore = endIndex < totalCount;
 
   // 缓存产品线选项，避免每行重复计算
@@ -1010,6 +1122,9 @@ function renderReqTable(reqs, reset = false) {
   ];
 
   const rowsHtml = pageReqs.map(req => {
+    const isChild = !!req.parent_id;
+    const hasChildren = HierarchyUtils.hasChildren(currentData.requirements, req.id);
+
     // 原型标签
     const hasWeb = req.hasPrototype && req.hasPrototype.web;
     const hasMobile = req.hasPrototype && req.hasPrototype.mobile;
@@ -1022,7 +1137,7 @@ function renderReqTable(reqs, reset = false) {
     const mainPL = req.mainProductLine || (toArray(req.productLine)[0]) || '未分类';
     const relatedPLs = (req.relatedProductLines || []).filter(pl => pl && pl !== mainPL);
 
-    // 合并所有来源的产品线：settings + 所有需求元数据 + 当前需求自身
+    // 合并所有来源的产品线
     const allPls = new Set([
       ...(settings.productLines || []),
       ...currentData.requirements.flatMap(r => {
@@ -1036,19 +1151,36 @@ function renderReqTable(reqs, reset = false) {
       ...Array.from(allPls).filter(p => p && p !== '未分类').sort().map(p => ({value: p, label: p}))
     ];
 
-    // 关联产品线标签HTML（用于单独列）
+    // 关联产品线标签HTML
     const relatedTagsHtml = relatedPLs.length > 0
       ? `<div class="flex flex-wrap gap-1">${relatedPLs.map(pl =>
           `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs text-ink-600 bg-ink-50 border border-ink-100">${escapeHtml(pl)}</span>`
         ).join('')}</div>`
       : '<span class="text-xs text-ink-300">-</span>';
 
+    // 搜索模式下的面包屑路径
+    const breadcrumbHtml = isSearchMode && isChild
+      ? `<div class="text-xs text-stone-400 mb-0.5">${escapeHtml(HierarchyUtils.getBreadcrumbPath(currentData.requirements, req.id))}</div>`
+      : '';
+
+    // 树形前缀
+    const treePrefix = isChild
+      ? '<span class="tree-prefix">└</span>'
+      : (hasChildren ? `<span class="tree-toggle" onclick="event.stopPropagation();toggleParentRow(this,'${escapeHtml(req.id)}')">▼</span>` : '<span class="tree-prefix"></span>');
+
+    const rowClass = isChild ? 'req-row-child' : (hasChildren ? 'req-row-parent' : '');
+    const dataAttr = isChild ? `data-child-of="${escapeHtml(req.parent_id)}"` : (hasChildren ? `data-parent-id="${escapeHtml(req.id)}"` : '');
+
     return `
-    <tr class="border-b border-ink-50 hover:bg-ink-50 transition-colors">
+    <tr class="border-b border-ink-50 hover:bg-ink-50 transition-colors ${rowClass}" ${dataAttr}>
       <td class="px-5 py-4">
-        <span class="font-mono text-sm text-ink-500">${escapeHtml(req.id)}</span>
+        <div class="flex items-center gap-1">
+          ${treePrefix}
+          <span class="font-mono text-sm text-ink-500">${escapeHtml(req.id)}</span>
+        </div>
       </td>
       <td class="px-5 py-4">
+        ${breadcrumbHtml}
         <div class="text-sm text-ink-800 cursor-pointer hover:text-ink-600 transition-colors" onclick="showDetail('${escapeHtml(req.id)}')">${escapeHtml(req.title)}</div>
       </td>
       <td class="px-5 py-4" data-stop-click="true">
@@ -1088,7 +1220,6 @@ function renderReqTable(reqs, reset = false) {
   if (reset) {
     listContainer.innerHTML = rowsHtml;
   } else {
-    // 追加模式：移除旧的"加载更多"行，追加新行
     const oldLoadMore = listContainer.querySelector('.load-more-row');
     if (oldLoadMore) oldLoadMore.remove();
     listContainer.insertAdjacentHTML('beforeend', rowsHtml);
@@ -1212,6 +1343,11 @@ function renderDetail() {
       ).join('')
     : '';
 
+  // 面包屑路径（如有父需求）
+  const breadcrumbHtml = req.parent_id
+    ? `<div class="text-xs text-stone-400 mb-1">${escapeHtml(HierarchyUtils.getBreadcrumbPath(currentData.requirements, req.id))}</div>`
+    : '';
+
   document.getElementById('detail-header').innerHTML = `
     <div class="flex items-center gap-3 flex-wrap">
       <span class="font-mono text-xs text-ink-500">${escapeHtml(req.id)}</span>
@@ -1228,6 +1364,7 @@ function renderDetail() {
         </span>
       </div>
     </div>
+    ${breadcrumbHtml}
     <div class="flex items-center gap-2 mt-2">
       <span class="text-xs font-medium text-ink-700 bg-ink-100 px-2 py-0.5 rounded">${escapeHtml(mainPL)}</span>
       ${relatedTagsHtml}
@@ -1260,6 +1397,50 @@ function renderDetail() {
       </div>
     </div>
   `}).join('');
+
+  // 右侧面板：父需求
+  const parentSection = document.getElementById('detail-parent-section');
+  const parentContent = document.getElementById('detail-parent-content');
+  const parentReq = HierarchyUtils.getParent(currentData.requirements, req.id);
+  if (parentReq) {
+    parentSection.classList.remove('hidden');
+    parentContent.innerHTML = `
+      <div class="flex items-center justify-between hover:bg-stone-50 rounded-lg p-2 transition-colors">
+        <div class="flex items-center gap-2 cursor-pointer" onclick="showDetail('${escapeHtml(parentReq.id)}')">
+          <span class="font-mono text-xs text-stone-400">${escapeHtml(parentReq.id)}</span>
+          <span class="text-sm text-stone-700 truncate">${escapeHtml(parentReq.title)}</span>
+        </div>
+        <button onclick="event.stopPropagation();clearParent('${escapeHtml(req.id)}')" class="text-xs text-stone-400 hover:text-red-500 ml-2">清除</button>
+      </div>
+    `;
+  } else {
+    parentSection.classList.remove('hidden');
+    parentContent.innerHTML = `
+      <div class="flex items-center justify-between">
+        <span class="text-sm text-stone-400">无</span>
+        <button onclick="showSetParentModal('${escapeHtml(req.id)}')" class="text-xs text-blue-500 hover:text-blue-700">设置父需求</button>
+      </div>
+    `;
+  }
+
+  // 右侧面板：子需求
+  const childrenSection = document.getElementById('detail-children-section');
+  const childrenContent = document.getElementById('detail-children-content');
+  const children = HierarchyUtils.getChildren(currentData.requirements, req.id);
+  if (children.length > 0) {
+    childrenSection.classList.remove('hidden');
+    childrenContent.innerHTML = children.map(child => `
+      <div class="flex items-center gap-2 cursor-pointer hover:bg-stone-50 rounded-lg p-2 transition-colors" onclick="showDetail('${escapeHtml(child.id)}')">
+        <span class="font-mono text-xs text-stone-400">${escapeHtml(child.id)}</span>
+        <span class="text-sm text-stone-700 truncate">${escapeHtml(child.title)}</span>
+      </div>
+    `).join('') + `
+      <button onclick="showSetParentModal('${escapeHtml(req.id)}')" class="text-xs text-blue-500 hover:text-blue-700 mt-2">+ 添加子需求</button>
+    `;
+  } else {
+    childrenSection.classList.add('hidden');
+    childrenContent.innerHTML = '';
+  }
 
   // 平台切换
   const platforms = req.platform || ['web'];
@@ -1585,6 +1766,142 @@ function cancelDocEdit() {
   editBtn.classList.remove('hidden');
   saveBtn.classList.add('hidden');
   cancelBtn.classList.add('hidden');
+}
+
+// ============================================================================
+// 父/子需求交互
+// ============================================================================
+
+let currentSettingParentReqId = null;
+let currentDeletingReqId = null;
+
+function showSetParentModal(reqId) {
+  currentSettingParentReqId = reqId;
+  document.getElementById('parent-selector-modal').classList.remove('hidden');
+  document.getElementById('parent-search-input').value = '';
+  document.getElementById('parent-search-input').focus();
+  renderParentSearchResults('');
+}
+
+function closeParentSelectorModal() {
+  document.getElementById('parent-selector-modal').classList.add('hidden');
+  currentSettingParentReqId = null;
+}
+
+function renderParentSearchResults(query) {
+  const currentReq = currentData.requirements.find(r => r.id === currentSettingParentReqId);
+  if (!currentReq) return;
+
+  const candidates = currentData.requirements.filter(r => {
+    if (r.id === currentSettingParentReqId) return false;
+    if (r.mainProductLine !== currentReq.mainProductLine) return false;
+    if (HierarchyUtils.checkCycleClient(currentData.requirements, currentSettingParentReqId, r.id)) return false;
+    if (r.parent_id) return false;
+    if (!query) return true;
+    return r.id.toLowerCase().includes(query.toLowerCase()) ||
+           r.title.toLowerCase().includes(query.toLowerCase());
+  });
+
+  const container = document.getElementById('parent-search-results');
+  if (candidates.length === 0) {
+    container.innerHTML = '<div class="p-3 text-sm text-stone-400 text-center">无匹配结果</div>';
+    return;
+  }
+  container.innerHTML = candidates.map(r => `
+    <div onclick="setParent('${escapeHtml(currentSettingParentReqId)}', '${escapeHtml(r.id)}')"
+         class="p-3 hover:bg-stone-50 cursor-pointer border-b border-stone-50 last:border-0">
+      <div class="text-sm font-medium text-stone-800">${escapeHtml(r.id)} ${escapeHtml(r.title)}</div>
+      <div class="text-xs text-stone-400">${escapeHtml(r.mainProductLine)} · ${escapeHtml(r.status)}</div>
+    </div>
+  `).join('');
+}
+
+function setParent(reqId, parentId) {
+  fetch(`/api/requirements/${reqId}/parent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parent_id: parentId })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.error) {
+      showToast(data.error, 'error');
+    } else {
+      showToast('父需求已设置', 'success');
+      closeParentSelectorModal();
+      refreshData();
+    }
+  })
+  .catch(err => {
+    console.error('设置父需求失败:', err);
+    showToast('设置失败', 'error');
+  });
+}
+
+function clearParent(reqId) {
+  fetch(`/api/requirements/${reqId}/parent`, { method: 'DELETE' })
+  .then(res => res.json())
+  .then(data => {
+    showToast('已解除父子关系', 'success');
+    refreshData();
+  })
+  .catch(err => {
+    console.error('解除父子关系失败:', err);
+    showToast('解除失败', 'error');
+  });
+}
+
+function showDeleteWithChildrenModal(reqId) {
+  const children = HierarchyUtils.getChildren(currentData.requirements, reqId);
+  if (children.length === 0) {
+    deleteRequirement(reqId);
+    return;
+  }
+  currentDeletingReqId = reqId;
+  document.getElementById('delete-parent-child-count').textContent = children.length;
+  document.getElementById('delete-parent-modal').classList.remove('hidden');
+}
+
+function closeDeleteParentModal() {
+  document.getElementById('delete-parent-modal').classList.add('hidden');
+  currentDeletingReqId = null;
+}
+
+function deleteWithChildrenAction(action) {
+  if (!currentDeletingReqId) return;
+  deleteRequirement(currentDeletingReqId, action);
+  closeDeleteParentModal();
+}
+
+function deleteRequirement(reqId, childrenAction) {
+  let url = `/api/requirements/${reqId}`;
+  if (childrenAction) url += `?childrenAction=${childrenAction}`;
+  fetch(url, { method: 'DELETE' })
+  .then(res => res.json())
+  .then(data => {
+    if (data.error) {
+      showToast(data.error, 'error');
+    } else {
+      showToast('删除成功', 'success');
+      refreshData();
+      const detailPage = document.getElementById('detail-page');
+      if (detailPage && !detailPage.classList.contains('hidden')) {
+        showPage('list');
+      }
+    }
+  })
+  .catch(err => {
+    console.error('删除需求失败:', err);
+    showToast('删除失败', 'error');
+  });
+}
+
+function showPage(pageName) {
+  if (pageName === 'list') {
+    showListPage();
+  } else if (pageName === 'home') {
+    showHome();
+  }
 }
 
 // 格式化时间戳显示
@@ -3590,7 +3907,7 @@ function renderDraftsList() {
           ${cdRender({ id: `cd-draft-status-${draft.id}`, value: draft.status, options: statusOptsArr, style: 'pill', colorType: 'status', onChange: `updateDraftStatus('${draft.id}')`, stopClick: true, extraClass: 'text-xs' })}
         </td>
         <td class="px-4 py-3" data-stop-click="true">
-          ${cdRender({ id: `cd-draft-priority-${draft.id}`, value: draft.priority, options: [{value:'low',label:'低'},{value:'medium',label:'中'},{value:'high',label:'高'}], style: 'pill', colorType: 'priority', onChange: `updateDraftField('${draft.id}','priority')`, stopClick: true, extraClass: 'text-xs' })}
+          ${cdRender({ id: `cd-draft-priority-${draft.id}`, value: draft.priority, options: (settings.priorityList || []).map(p => ({value: p, label: p})), style: 'pill', colorType: 'priority', onChange: `updateDraftField('${draft.id}','priority')`, stopClick: true, extraClass: 'text-xs' })}
         </td>
         <td class="px-4 py-3" data-stop-click="true">
           <div class="flex flex-wrap gap-1 text-xs">
@@ -3802,12 +4119,13 @@ function showDraftModal(draftId = null) {
     document.getElementById('draft-description-input').value = editingDraft.description || '';
     document.getElementById('draft-source-input').value = editingDraft.source || '';
     document.getElementById('draft-tags-input').value = (editingDraft.tags || []).join(', ');
-    // 渲染优先级下拉
+    // 渲染优先级下拉（使用系统设置）
+    const draftPriorityList = settings.priorityList || ['P0', 'P1', 'P2', 'P3', 'P4', 'P5'];
     document.getElementById('draft-priority-input-dd').innerHTML = cdRender({
       id: 'cd-draft-priority-input',
-      value: editingDraft.priority || 'medium',
-      options: [{value:'low',label:'低'},{value:'medium',label:'中'},{value:'high',label:'高'}],
-      style: 'form', colorType: '', onChange: ''
+      value: editingDraft.priority || draftPriorityList[2] || '',
+      options: draftPriorityList.map(p => ({value: p, label: p})),
+      style: 'form', colorType: 'priority', onChange: ''
     });
   } else {
     titleEl.textContent = '新建草稿';
@@ -3816,12 +4134,13 @@ function showDraftModal(draftId = null) {
     document.getElementById('draft-description-input').value = '';
     document.getElementById('draft-source-input').value = '';
     document.getElementById('draft-tags-input').value = '';
-    // 渲染优先级下拉
+    // 渲染优先级下拉（使用系统设置）
+    const draftPriorityList = settings.priorityList || ['P0', 'P1', 'P2', 'P3', 'P4', 'P5'];
     document.getElementById('draft-priority-input-dd').innerHTML = cdRender({
       id: 'cd-draft-priority-input',
-      value: 'medium',
-      options: [{value:'low',label:'低'},{value:'medium',label:'中'},{value:'high',label:'高'}],
-      style: 'form', colorType: '', onChange: ''
+      value: draftPriorityList[2] || '',
+      options: draftPriorityList.map(p => ({value: p, label: p})),
+      style: 'form', colorType: 'priority', onChange: ''
     });
   }
   
@@ -4217,6 +4536,15 @@ function showIdeaConvertModal(ideaId, mode) {
   document.getElementById('convert-idea-id').value = ideaId;
   document.getElementById('convert-idea-mode').value = mode;
 
+  // 优先级选择（使用系统设置）
+  const priorityList = settings.priorityList || ['P0', 'P1', 'P2', 'P3', 'P4', 'P5'];
+  document.getElementById('convert-idea-priority-dd').innerHTML = cdRender({
+    id: 'cd-convert-idea-priority',
+    value: priorityList[2] || '',
+    options: priorityList.map(p => ({value: p, label: p})),
+    style: 'form', colorType: 'priority', onChange: ''
+  });
+
   // 产品线选择（只有转需求时需要）
   if (mode === 'requirement') {
     plSection.classList.remove('hidden');
@@ -4247,6 +4575,8 @@ async function confirmIdeaConvert() {
   const mode = currentConvertingIdeaMode;
   if (!ideaId || !mode) return;
 
+  const priority = cdGetValue('cd-convert-idea-priority') || '';
+
   let product_line = [];
   if (mode === 'requirement') {
     const checked = document.querySelectorAll('input[name="convert-idea-pl"]:checked');
@@ -4255,7 +4585,9 @@ async function confirmIdeaConvert() {
 
   try {
     const endpoint = mode === 'draft' ? `/api/ideas/${ideaId}/convert-to-draft` : `/api/ideas/${ideaId}/convert-to-requirement`;
-    const body = mode === 'requirement' ? JSON.stringify({ product_line }) : undefined;
+    const body = mode === 'requirement'
+      ? JSON.stringify({ product_line, priority })
+      : JSON.stringify({ priority });
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
