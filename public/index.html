@@ -98,6 +98,19 @@
     .cdropdown-form .cdropdown-trigger:hover { border-color: #9a8f80; }
     .cdropdown-form .cd-arrow { display: none; }
 
+    /* 纯文本型（轻量行内编辑） */
+    .cdropdown-text .cdropdown-trigger {
+      padding: 2px 18px 2px 4px;
+      font-size: 13px; line-height: 1.4;
+      background-color: transparent; border: none;
+      color: #4a433c;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 14 14'%3E%3Cpath fill='%239a8f80' d='M7 9L2 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 2px center;
+    }
+    .cdropdown-text .cdropdown-trigger:hover { color: #1a1a1a; }
+    .cdropdown-text .cd-arrow { display: none; }
+    .cdropdown-text .cd-label { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
     /* 下拉面板 */
     .cdropdown-panel {
       position: absolute; z-index: 50; margin-top: 4px;
@@ -215,19 +228,57 @@
     .req-row:hover { background: #f0eee9; }
 
     /* Hierarchy table rows */
-    .req-row-child {
-      padding-left: 24px;
+    /* 父需求行：左侧陶土色竖条标识 */
+    .req-row-parent td:first-child {
       position: relative;
     }
-    .req-row-child::before {
+    .req-row-parent td:first-child::after {
       content: '';
       position: absolute;
-      left: 8px;
+      left: 0;
+      top: 4px;
+      bottom: 4px;
+      width: 3px;
+      background: #c4a882;
+      border-radius: 0 3px 3px 0;
+    }
+
+    /* 子需求行：浅暖灰背景 + 左侧缩进 */
+    .req-row-child {
+      background-color: #faf9f7 !important;
+    }
+    .req-row-child td:first-child {
+      padding-left: 32px;
+      position: relative;
+    }
+    /* 子需求树形连接线：竖线 */
+    .req-row-child td:first-child::before {
+      content: '';
+      position: absolute;
+      left: 14px;
       top: 0;
       bottom: 0;
-      width: 1px;
-      background: #d4cfc7;
+      width: 2px;
+      background: linear-gradient(to bottom, #c4a882 0%, #d4b896 100%);
+      opacity: 0.5;
     }
+    /* 子需求树形连接线：横线 + 拐角 */
+    .req-row-child td:first-child::after {
+      content: '';
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      width: 14px;
+      height: 2px;
+      background: #c4a882;
+      opacity: 0.5;
+      border-radius: 0 2px 2px 0;
+    }
+    /* 子需求最后一个的竖线截断（需要在JS中动态添加类名，这里预留样式） */
+    .req-row-child.last-child td:first-child::before {
+      bottom: 50%;
+    }
+
     .req-row-parent .tree-toggle {
       cursor: pointer;
       transition: transform 0.2s;
@@ -244,8 +295,13 @@
       display: inline-block;
       width: 16px;
       text-align: center;
-      color: #d4cfc7;
-      font-size: 10px;
+      color: #c4a882;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    /* 父需求行 hover 时保持原色，子需求行 hover 加深 */
+    .req-row-child:hover {
+      background-color: #f5f3ef !important;
     }
 
     /* Card hover */
@@ -858,23 +914,24 @@
           <div id="kanban-board" class="flex gap-4 overflow-x-auto pb-4" style="min-height: 400px;"></div>
 
           <!-- 表格布局 -->
-          <div id="table-view" class="hidden bg-white rounded-2xl border border-ink-100 shadow-sm">
-            <table class="w-full">
+          <div id="table-view" class="hidden bg-white rounded-2xl border border-ink-100 shadow-sm overflow-x-auto">
+            <table class="w-full" style="table-layout:fixed;min-width:1400px">
               <thead>
                 <tr class="border-b border-ink-100">
-                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">需求ID</th>
-                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">需求名称</th>
-                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">产品线</th>
-                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">关联产品线</th>
-                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">状态</th>
-                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">迭代</th>
-                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">终端</th>
-                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">原型</th>
-                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">开发</th>
-                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">创建时间</th>
-                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">预计上线</th>
-                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">优先级</th>
-                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider">操作</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider" style="width:90px">需求ID</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider" style="width:260px">需求名称</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider" style="width:90px">父需求</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider" style="width:110px">产品线</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider" style="width:110px">关联产品线</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider" style="width:95px">状态</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider" style="width:110px">迭代</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider" style="width:70px">终端</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider" style="width:70px">原型</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider" style="width:90px">开发</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider" style="width:100px">创建时间</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider" style="width:100px">预计上线</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider" style="width:85px">优先级</th>
+                  <th scope="col" class="px-5 py-4 text-left text-xs font-semibold text-ink-400 uppercase tracking-wider" style="width:60px">操作</th>
                 </tr>
               </thead>
               <tbody id="requirements-list"></tbody>

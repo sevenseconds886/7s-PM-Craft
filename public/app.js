@@ -92,6 +92,18 @@ const HierarchyUtils = {
       depth++;
     }
     return false;
+  },
+  isDescendant(requirements, ancestorId, descendantId) {
+    let current = descendantId;
+    let depth = 0;
+    while (current && depth < 50) {
+      const req = requirements.find(r => r.id === current);
+      if (!req || !req.parent_id) return false;
+      if (req.parent_id === ancestorId) return true;
+      current = req.parent_id;
+      depth++;
+    }
+    return false;
   }
 };
 
@@ -104,6 +116,23 @@ function toggleParentRow(toggleEl, parentId) {
     child.classList.toggle('hidden', !isCollapsed);
   });
   row.classList.toggle('collapsed', !isCollapsed);
+}
+
+// 通过 parentId 折叠切换（用于父需求列徽章点击）
+function toggleParentRowById(parentId) {
+  const row = document.querySelector(`tr[data-parent-id="${CSS.escape(parentId)}"]`);
+  if (!row) return;
+  const isCollapsed = row.classList.contains('collapsed');
+  const childRows = document.querySelectorAll(`tr[data-child-of="${CSS.escape(parentId)}"]`);
+  childRows.forEach(child => {
+    child.classList.toggle('hidden', !isCollapsed);
+  });
+  row.classList.toggle('collapsed', !isCollapsed);
+  // 同步更新树形前缀的箭头
+  const toggleEl = row.querySelector('.tree-toggle');
+  if (toggleEl) {
+    toggleEl.textContent = isCollapsed ? '▼' : '▶';
+  }
 }
 
 let lastSearchQuery = '';
@@ -210,6 +239,7 @@ function cdRender(cfg) {
   const uid = cfg.id || ('cd-' + (++_cdUID));
   const styleCls = cfg.style === 'filter' ? 'cdropdown-pill cdropdown-filter'
     : cfg.style === 'form' ? 'cdropdown-form'
+    : cfg.style === 'text' ? 'cdropdown-text'
     : 'cdropdown-pill';
   const colorCls = cfg.colorType && cfg.value ? `cd-${cfg.colorType}-${cfg.value}` : '';
   const selOpt = cfg.options.find(o => o.value === cfg.value) || cfg.options[0];
@@ -219,7 +249,8 @@ function cdRender(cfg) {
     const sel = o.value === cfg.value ? 'selected' : '';
     const badgeStyle = cdGetOptBadgeStyle(cfg.colorType, o.value);
     const badgeHtml = badgeStyle ? `<span class="cd-opt-badge" style="${badgeStyle}">${o.label}</span>` : '';
-    return `<div class="cdropdown-option ${sel}" data-value="${o.value}">${badgeHtml || o.label}</div>`;
+    const titleAttr = o.title ? `title="${escapeHtml(o.title)}"` : '';
+    return `<div class="cdropdown-option ${sel}" data-value="${o.value}" ${titleAttr}>${badgeHtml || o.label}</div>`;
   }).join('');
 
   const stopClickAttr = cfg.stopClick ? 'data-stop-click="true"' : '';
@@ -1093,7 +1124,7 @@ function renderReqTable(reqs, reset = false) {
   const loadMoreContainer = document.getElementById('load-more-container');
 
   if (reqs.length === 0) {
-    listContainer.innerHTML = '<tr><td colspan="13" class="px-5 py-12 text-center text-ink-500 text-sm">暂无需求</td></tr>';
+    listContainer.innerHTML = '<tr><td colspan="14" class="px-5 py-12 text-center text-ink-500 text-sm">暂无需求</td></tr>';
     if (loadMoreContainer) loadMoreContainer.classList.add('hidden');
     return;
   }
@@ -1171,6 +1202,35 @@ function renderReqTable(reqs, reset = false) {
     const rowClass = isChild ? 'req-row-child' : (hasChildren ? 'req-row-parent' : '');
     const dataAttr = isChild ? `data-child-of="${escapeHtml(req.parent_id)}"` : (hasChildren ? `data-parent-id="${escapeHtml(req.id)}"` : '');
 
+    // 父需求下拉选项：排除自己、排除后代、同一产品线、深度不超过2层
+    const parentCandidates = currentData.requirements.filter(r => {
+      if (r.id === req.id) return false;
+      if (HierarchyUtils.isDescendant(currentData.requirements, req.id, r.id)) return false;
+      const rMainPL = r.mainProductLine || (toArray(r.productLine)[0]) || '未分类';
+      if (rMainPL !== mainPL) return false;
+      const rParentId = r.parent_id;
+      if (rParentId) return false;
+      return true;
+    });
+    const parentOptions = [
+      {value: '', label: '无'},
+      ...parentCandidates.map(r => ({value: r.id, label: r.id, title: r.title}))
+    ];
+    const currentParentValue = req.parent_id || '';
+
+    // 父需求列显示内容
+    let parentCellHtml;
+    if (hasChildren) {
+      const childCount = HierarchyUtils.getChildren(currentData.requirements, req.id).length;
+      parentCellHtml = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-600 border border-amber-200 cursor-pointer hover:bg-amber-100" onclick="event.stopPropagation();toggleParentRowById('${escapeHtml(req.id)}')" title="${childCount} 个子需求，点击展开/折叠">▼ ${childCount}个子需求</span>`;
+    } else if (isChild) {
+      const parentReq = currentData.requirements.find(r => r.id === req.parent_id);
+      const parentLabel = parentReq ? `${parentReq.id}` : req.parent_id;
+      parentCellHtml = `<span class="inline-flex items-center gap-1 text-xs text-ink-500 cursor-pointer hover:text-amber-600" onclick="event.stopPropagation();showDetail('${escapeHtml(parentLabel)}')" title="${escapeHtml(parentLabel)} ${parentReq ? escapeHtml(parentReq.title) : ''}">↑ ${escapeHtml(parentLabel)}</span>`;
+    } else {
+      parentCellHtml = '<span class="text-xs text-ink-300">-</span>';
+    }
+
     return `
     <tr class="border-b border-ink-50 hover:bg-ink-50 transition-colors ${rowClass}" ${dataAttr}>
       <td class="px-5 py-4">
@@ -1181,7 +1241,10 @@ function renderReqTable(reqs, reset = false) {
       </td>
       <td class="px-5 py-4">
         ${breadcrumbHtml}
-        <div class="text-sm text-ink-800 cursor-pointer hover:text-ink-600 transition-colors" onclick="showDetail('${escapeHtml(req.id)}')">${escapeHtml(req.title)}</div>
+        <div class="text-sm text-ink-800 cursor-pointer hover:text-ink-600 transition-colors truncate" style="max-width:240px" title="${escapeHtml(req.title)}" onclick="showDetail('${escapeHtml(req.id)}')">${escapeHtml(req.title)}</div>
+      </td>
+      <td class="px-5 py-4" data-stop-click="true">
+        ${hasChildren ? parentCellHtml : cdRender({ id: `cd-parent-${escapeHtml(req.id)}`, value: currentParentValue, options: parentOptions, style: 'text', colorType: '', onChange: `updateParentInline('${escapeHtml(req.id)}')`, stopClick: true })}
       </td>
       <td class="px-5 py-4" data-stop-click="true">
         ${cdRender({ id: `cd-pl-${escapeHtml(req.id)}`, value: mainPL, options: plOptions, style: 'pill', colorType: '', onChange: `updateProductLine('${escapeHtml(req.id)}')`, stopClick: true })}
@@ -1229,7 +1292,7 @@ function renderReqTable(reqs, reset = false) {
   if (hasMore) {
     listContainer.insertAdjacentHTML('beforeend', `
       <tr class="load-more-row" id="load-more-trigger">
-        <td colspan="13" class="px-5 py-4 text-center">
+        <td colspan="14" class="px-5 py-4 text-center">
           <div class="flex items-center justify-center gap-2 text-sm text-ink-400">
             <svg class="animate-spin h-4 w-4 text-ink-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -1937,6 +2000,22 @@ function clearParent(reqId) {
     console.error('解除父子关系失败:', err);
     showToast('解除失败', 'error');
   });
+}
+
+// 行内更新父需求
+function updateParentInline(reqId) {
+  const parentId = cdGetValue(`cd-parent-${reqId}`);
+  const req = currentData.requirements.find(r => r.id === reqId);
+  const currentParent = req ? (req.parent_id || '') : '';
+
+  // 值未变化，不处理
+  if (parentId === currentParent) return;
+
+  if (parentId) {
+    setParent(reqId, parentId);
+  } else {
+    clearParent(reqId);
+  }
 }
 
 function showDeleteWithChildrenModal(reqId) {
