@@ -125,15 +125,62 @@ function buildFrontMatterWithProductLines(frontMatter) {
 // ============================================================================
 // 工具函数：解析 requirement.md
 // ============================================================================
+// ============================================================================
+// 工具函数：解析 requirement.md（兼容 AIGC 注入 + CRLF/LF 换行符）
+// ============================================================================
 function parseRequirement(filePath) {
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  const rawContent = fs.readFileSync(filePath, 'utf-8');
 
-  if (!match) return null;
+  // 防御：统一换行符为 LF，兼容 CRLF 和 LF
+  const content = rawContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // 查找所有 front matter 块（--- 包围的 YAML 块）
+  const fmRegex = /^---\n([\s\S]*?)\n---\n/g;
+  const blocks = [];
+  let m;
+  while ((m = fmRegex.exec(content)) !== null) {
+    blocks.push(m[1]);
+  }
+
+  let frontMatterYaml = null;
+  let bodyStart = 0;
+
+  if (blocks.length === 0) {
+    // 没有 front matter，整个文件就是 body
+    return null;
+  }
+
+  if (blocks.length === 1) {
+    // 只有一个 front matter 块，直接使用
+    frontMatterYaml = blocks[0];
+    const endIdx = content.indexOf('\n---\n', 0) + 5;
+    bodyStart = endIdx;
+  } else {
+    // 多个 front matter 块：检测第一个是否被 AIGC 污染
+    const firstFm = yaml.load(blocks[0], { schema: yaml.JSON_SCHEMA }) || {};
+    const isAIGC = firstFm.AIGC || firstFm.__AIGC__ || firstFm.aigc_metadata;
+
+    if (isAIGC) {
+      // 第一个被污染，跳过取第二个
+      console.warn('[AIGC 防御] 跳过污染的 front matter:', filePath);
+      frontMatterYaml = blocks[1];
+      // 计算第二个 front matter 之后的 body 起始位置
+      let pos = 0;
+      for (let i = 0; i < 2; i++) {
+        pos = content.indexOf('\n---\n', pos) + 5;
+      }
+      bodyStart = pos;
+    } else {
+      // 第一个就是正常的，直接使用
+      frontMatterYaml = blocks[0];
+      const endIdx = content.indexOf('\n---\n', 0) + 5;
+      bodyStart = endIdx;
+    }
+  }
 
   try {
-    const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
-    const body = match[2].trim();
+    const frontMatter = yaml.load(frontMatterYaml, { schema: yaml.JSON_SCHEMA });
+    const body = content.slice(bodyStart).trim();
     const result = { ...frontMatter, body, bodyPath: filePath };
     // parent_id 不存在或为 null/空字符串时省略该字段
     if (!result.parent_id) {
@@ -337,7 +384,7 @@ function scanDrafts() {
 
     try {
       const content = fs.readFileSync(draftFile, 'utf-8');
-      const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+      const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
 
       if (match) {
         const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
@@ -381,7 +428,7 @@ function scanDrafts() {
 
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
-      const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+      const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
 
       if (match) {
         const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
@@ -451,7 +498,7 @@ function scanIdeas() {
 
     try {
       const content = fs.readFileSync(ideaFile, 'utf-8');
-      const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+      const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
 
       if (match) {
         const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
@@ -841,7 +888,7 @@ app.put('/api/drafts/:id', (req, res) => {
 
     let content = fs.readFileSync(draft.bodyPath, 'utf-8');
 
-    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
     if (match) {
       const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA }) || {};
       if (title) frontMatter.title = title;
@@ -894,7 +941,7 @@ app.post('/api/drafts/:id/status', (req, res) => {
     }
 
     const content = fs.readFileSync(draft.bodyPath, 'utf-8');
-    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
 
     if (match) {
       const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA }) || {};
@@ -979,7 +1026,7 @@ app.post('/api/drafts/:id/publish', (req, res) => {
 
     // 更新草稿状态为 published
     const draftContent = fs.readFileSync(draft.bodyPath, 'utf-8');
-    const match = draftContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const match = draftContent.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
     if (match) {
       const fm = yaml.load(match[1], { schema: yaml.JSON_SCHEMA }) || {};
       fm.status = 'published';
@@ -1122,7 +1169,7 @@ app.put('/api/ideas/:id', (req, res) => {
     const today = new Date().toISOString();
 
     let fileContent = fs.readFileSync(idea.bodyPath, 'utf-8');
-    const match = fileContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const match = fileContent.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
 
     if (match) {
       const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA }) || {};
@@ -1248,7 +1295,7 @@ app.post('/api/ideas/:id/convert-to-draft', (req, res) => {
 
     // 更新灵感的 converted_to 字段
     const ideaContent = fs.readFileSync(idea.bodyPath, 'utf-8');
-    const ideaMatch = ideaContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const ideaMatch = ideaContent.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
     if (ideaMatch) {
       const ideaFM = yaml.load(ideaMatch[1], { schema: yaml.JSON_SCHEMA }) || {};
       ideaFM.converted_to = draftId;
@@ -1330,7 +1377,7 @@ app.post('/api/ideas/:id/convert-to-requirement', (req, res) => {
 
     // 更新灵感的 converted_to 字段
     const ideaContent = fs.readFileSync(idea.bodyPath, 'utf-8');
-    const ideaMatch = ideaContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const ideaMatch = ideaContent.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
     if (ideaMatch) {
       const ideaFM = yaml.load(ideaMatch[1], { schema: yaml.JSON_SCHEMA }) || {};
       ideaFM.converted_to = results.map(r => r.id).join(', ');
@@ -1390,7 +1437,7 @@ app.put('/api/requirements/:id', (req, res) => {
     }
 
     const content = fs.readFileSync(requirement.bodyPath, 'utf-8');
-    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
 
     if (!match) {
       return res.status(500).json({ error: '文件格式错误' });
@@ -1444,7 +1491,7 @@ app.post('/api/requirements/:id/status', (req, res) => {
     }
 
     const content = fs.readFileSync(requirement.bodyPath, 'utf-8');
-    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
 
     if (match) {
       const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
@@ -1481,7 +1528,7 @@ app.post('/api/requirements/:id/priority', (req, res) => {
     }
 
     const content = fs.readFileSync(requirement.bodyPath, 'utf-8');
-    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
 
     if (match) {
       const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
@@ -1517,7 +1564,7 @@ app.post('/api/requirements/:id/sprint', (req, res) => {
     }
 
     const content = fs.readFileSync(requirement.bodyPath, 'utf-8');
-    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
 
     if (match) {
       const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
@@ -1558,7 +1605,7 @@ app.post('/api/requirements/:id/parent', (req, res) => {
     }
 
     const content = fs.readFileSync(requirement.bodyPath, 'utf-8');
-    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
 
     if (!match) {
       return res.status(500).json({ error: '文件格式错误' });
@@ -1596,7 +1643,7 @@ app.delete('/api/requirements/:id/parent', (req, res) => {
     }
 
     const content = fs.readFileSync(requirement.bodyPath, 'utf-8');
-    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
 
     if (!match) {
       return res.status(500).json({ error: '文件格式错误' });
@@ -1642,7 +1689,7 @@ app.delete('/api/requirements/:id', (req, res) => {
       // 移除所有子需求的 parent_id
       for (const child of children) {
         const childContent = fs.readFileSync(child.bodyPath, 'utf-8');
-        const childMatch = childContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+        const childMatch = childContent.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
         if (childMatch) {
           const childFM = yaml.load(childMatch[1], { schema: yaml.JSON_SCHEMA });
           delete childFM.parent_id;
@@ -1700,7 +1747,7 @@ app.post('/api/requirements/:id/due_date', (req, res) => {
     }
 
     const content = fs.readFileSync(requirement.bodyPath, 'utf-8');
-    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
 
     if (match) {
       const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
@@ -1740,7 +1787,7 @@ app.post('/api/requirements/:id/content', (req, res) => {
     }
 
     const fileContent = fs.readFileSync(requirement.bodyPath, 'utf-8');
-    const match = fileContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const match = fileContent.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
 
     if (match) {
       const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
@@ -1878,7 +1925,7 @@ app.post('/api/requirements/:id/archive', (req, res) => {
     // 移动成功后更新状态
     const newBodyPath = path.join(targetDir, 'requirement.md');
     const content = fs.readFileSync(newBodyPath, 'utf-8');
-    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
 
     if (match) {
       const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
@@ -1910,7 +1957,7 @@ app.post('/api/requirements/:id/archive', (req, res) => {
 
           const childNewBodyPath = path.join(childTargetDir, 'requirement.md');
           const childContent = fs.readFileSync(childNewBodyPath, 'utf-8');
-          const childMatch = childContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+          const childMatch = childContent.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
           if (childMatch) {
             const childFM = yaml.load(childMatch[1], { schema: yaml.JSON_SCHEMA });
             childFM.status = '已完成';
@@ -1956,7 +2003,7 @@ app.post('/api/requirements/:id/unarchive', (req, res) => {
           if (!fs.existsSync(reqFile)) continue;
           try {
             const content = fs.readFileSync(reqFile, 'utf-8');
-            const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+            const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
             if (match) {
               const fm = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
               if (fm.id === req.params.id) {
@@ -2007,7 +2054,7 @@ app.post('/api/requirements/:id/unarchive', (req, res) => {
     // 更新需求元数据
     const newReqFile = path.join(targetDir, 'requirement.md');
     const content = fs.readFileSync(newReqFile, 'utf-8');
-    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
     if (match) {
       const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
       frontMatter.status = '设计中';
@@ -2061,7 +2108,7 @@ app.post('/api/requirements/:id/unarchive', (req, res) => {
 
         const childNewReqFile = path.join(childTargetDir, 'requirement.md');
         const childContent = fs.readFileSync(childNewReqFile, 'utf-8');
-        const childMatch = childContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+        const childMatch = childContent.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
         if (childMatch) {
           const childFM = yaml.load(childMatch[1], { schema: yaml.JSON_SCHEMA });
           childFM.status = '设计中';
@@ -2184,7 +2231,7 @@ app.post('/api/requirements/import', (req, res) => {
     let frontMatter = {};
     let body = content;
 
-    const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+    const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
     if (fmMatch) {
       try {
         frontMatter = yaml.load(fmMatch[1], { schema: yaml.JSON_SCHEMA }) || {};
@@ -2405,7 +2452,7 @@ app.post('/api/sprints/:name/archive', (req, res) => {
 
           const newBodyPath = path.join(targetDir, 'requirement.md');
           const content = fs.readFileSync(newBodyPath, 'utf-8');
-          const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+          const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
 
           if (match) {
             const fm = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
@@ -2499,7 +2546,7 @@ app.delete('/api/product-lines/:name', async (req, res) => {
       if (!fs.existsSync(reqFile)) return;
       try {
         const content = fs.readFileSync(reqFile, 'utf-8');
-        const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+        const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
         if (match) {
           const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
           let pls = frontMatter.product_line;
@@ -2586,7 +2633,7 @@ app.delete('/api/product-lines/:name', async (req, res) => {
             if (!fs.existsSync(reqFile)) continue;
             try {
               const content = fs.readFileSync(reqFile, 'utf-8');
-              const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+              const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
               if (match) {
                 const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
                 let pls = frontMatter.product_line;
@@ -2694,7 +2741,7 @@ app.post('/api/requirements/:id/product-line', (req, res) => {
 
     // 读取并更新 requirement.md
     const content = fs.readFileSync(requirement.bodyPath, 'utf-8');
-    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
     if (!match) {
       return res.status(500).json({ error: '需求文件格式错误' });
     }
@@ -2758,7 +2805,7 @@ function batchRenameField(field, from, to) {
   for (const req of requirements) {
     if (req[field] === from) {
       const content = fs.readFileSync(req.bodyPath, 'utf-8');
-      const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+      const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
       if (match) {
         const frontMatter = yaml.load(match[1], { schema: yaml.JSON_SCHEMA });
         frontMatter[field] = to;
