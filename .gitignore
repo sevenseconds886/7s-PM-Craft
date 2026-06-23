@@ -56,3 +56,6 @@ PM-Craft-全量需求文档-*.md
 # Screenshots & debug images
 screenshots/
 *.png
+
+# 启动器本地配置（记录用户选择的端口，不进仓库）
+.launcher.json
