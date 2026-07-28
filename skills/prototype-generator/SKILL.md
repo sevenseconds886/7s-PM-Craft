@@ -228,10 +228,10 @@ Step 1: 采集设计系统 → Step 2: 解析需求 → Step 3: 确认页面 →
 ```
 若 http://localhost:3456 可达：
   POST /api/requirements/{id}/prototype/import
-  Body: { "content": "<完整HTML>", "platform": "web" }
+  Body: { "content": "<完整HTML>", "platform": "{design-system.platform 或 'web'}" }
 
 若不可达：
-  保存 prototype-web.html 到当前工作目录
+  保存 prototype-{platform}.html 到当前工作目录（platform=mobile 或 web）
 ```
 
 ---
@@ -280,17 +280,39 @@ Step 1: 采集设计系统 → Step 2: 解析需求 → Step 3: 确认页面 →
 
 ---
 
-## 移动端原型
+## 原型平台判定（Web / 移动端）
 
-`prototype-mobile.html` 默认不生成，用户显式要求时才生成。
+**根据 design-system.json 的 `platform` 字段自动决定**：
+
+| platform 值 | 输出文件 | 行为 |
+|-------------|---------|------|
+| `"mobile"` | `prototype-mobile.html` | 固定 375px 移动端，底部 Tab 导航 |
+| `"web"` | `prototype-web.html` | 响应式 Web 端，顶部水平导航 |
+| 未设置 | `prototype-web.html` | 默认 Web 端（向后兼容） |
+
+**判定优先级**：
+1. design-system.json 的 `platform` 字段 → 直接使用
+2. 用户显式要求「移动端/手机端」→ 生成移动端
+3. 用户显式要求「Web/网页」→ 生成 Web 端
+4. 都没有 → 默认 Web 端
+
+**如果 design-system.json 含 `layout` 字段**，按其配置生成：
+- `layout.width`：容器宽度（移动端 `375px` / Web `responsive`）
+- `layout.navType`：导航类型（`bottom-tab` / `top-bar`）
+- `layout.navItems`：导航项数量
+- `layout.safeAreaTop`：顶部安全区高度（状态栏）
+- `layout.safeAreaBottom`：底部安全区高度（底部导航）
+
+### 移动端 vs Web 端差异
 
 | 差异点 | Web 端 | 移动端 |
 |--------|--------|--------|
-| 宽度 | 响应式 1024px+ | 固定 375px |
-| 导航 | 顶部水平 | 底部 Tab |
+| 宽度 | 响应式 1024px+ | 固定 375px（或 layout.width） |
+| 导航 | 顶部水平 | 底部 Tab（或 layout.navType） |
 | 按钮 | 胶囊 | 全宽 |
 | 列表项 | 紧凑 | min-height 44px |
 | 弹窗 | 居中 Modal | 底部 Bottom Sheet |
+| 输出文件 | prototype-web.html | prototype-mobile.html |
 
 ---
 
@@ -314,7 +336,7 @@ AI 生成原型时最常见的"AI味"错误，**绝对不能出现**：
 
 组装完成后自检（必须全部通过）：
 
-- [ ] 单个 `prototype-web.html`，可独立在浏览器打开
+- [ ] 单个 `prototype-{platform}.html`（mobile 或 web），可独立在浏览器打开
 - [ ] `<meta name="pm-craft-requirement-id">` 已嵌入
 - [ ] 所有页面通过 `navigate()` 可切换
 - [ ] 按钮 hover/active/disabled 状态完整
