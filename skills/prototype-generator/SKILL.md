@@ -298,16 +298,21 @@ Step 1: 采集设计系统 → Step 2: 解析需求 → Step 3: 确认页面 →
 
 **如果 design-system.json 含 `layout` 字段**，按其配置生成：
 - `layout.width`：容器宽度（移动端 `375px` / Web `responsive`）
+- `layout.height`：容器高度（移动端 `812px` 等，限定原型可视区域高度）
+- `layout.container`：容器定位方式（`centered-both` 水平+垂直居中 / `centered` 仅水平居中 / `full` 全屏）
 - `layout.navType`：导航类型（`bottom-tab` / `top-bar`）
 - `layout.navItems`：导航项数量
 - `layout.safeAreaTop`：顶部安全区高度（状态栏）
 - `layout.safeAreaBottom`：底部安全区高度（底部导航）
+
+**移动端居中规则**：`container: "centered-both"` 时，原型框架在浏览器中水平+垂直居中显示（body 用 `display:flex; align-items:center; justify-content:center`），框架尺寸固定为 `width × height`，超出部分内部滚动。
 
 ### 移动端 vs Web 端差异
 
 | 差异点 | Web 端 | 移动端 |
 |--------|--------|--------|
 | 宽度 | 响应式 1024px+ | 固定 375px（或 layout.width） |
+| 高度 | 自适应 | 固定 812px（或 layout.height） |
 | 导航 | 顶部水平 | 底部 Tab（或 layout.navType） |
 | 按钮 | 胶囊 | 全宽 |
 | 列表项 | 紧凑 | min-height 44px |
